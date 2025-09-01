@@ -142,14 +142,11 @@ export function QRPrinting() {
         }
       }
       
-      // Ask user about printing after a short delay to allow windows to load
+      // Allow windows to load without showing alert
       setTimeout(() => {
-        const windowCount = locationsBySize.size;
-        if (confirm(`QR codes opened in ${windowCount} window${windowCount > 1 ? 's' : ''} (grouped by size). Would you like to print them now?`)) {
-          // Print all open windows (this is a bit hacky, but works for the use case)
-          setTimeout(() => window.print(), 100);
-        }
-      }, 1000);
+        // Windows will open automatically, user can print manually
+        console.log(`QR codes opened in ${locationsBySize.size} window${locationsBySize.size > 1 ? 's' : ''} (grouped by size)`);
+      }, 500);
       
     } catch (error) {
       console.error('Error generating QR codes:', error);
