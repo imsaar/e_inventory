@@ -2134,6 +2134,25 @@ body {
   gap: 8px;
 }
 
+.qr-printing-page .selection-controls .btn-small {
+  background: #f8f9fa;
+  color: #333;
+  border: 1px solid #ddd;
+}
+
+.qr-printing-page .selection-controls .btn-small:hover {
+  background: #e9ecef;
+  color: #1976d2;
+  border-color: #1976d2;
+}
+
+.qr-printing-page .selection-controls .btn-small:disabled {
+  background: #f5f5f5;
+  color: #999;
+  border-color: #e0e0e0;
+  cursor: not-allowed;
+}
+
 /* QR Locations Grid */
 .qr-locations-grid {
   display: grid;
