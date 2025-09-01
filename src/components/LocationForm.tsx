@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X, Save, MapPin, Trash2 } from 'lucide-react';
 import { StorageLocation } from '../types';
+import { TagInput } from './TagInput';
+import { PhotoUpload } from './PhotoUpload';
 
 interface LocationFormProps {
   location?: StorageLocation | null;
@@ -24,6 +26,9 @@ export function LocationForm({ location, onSave, onCancel, onDelete }: LocationF
     type: 'room' as StorageLocation['type'],
     parentId: '',
     description: '',
+    qrSize: 'medium' as StorageLocation['qrSize'],
+    photoUrl: '',
+    tags: [] as string[],
     generateQR: false
   });
 
@@ -36,6 +41,9 @@ export function LocationForm({ location, onSave, onCancel, onDelete }: LocationF
         type: location.type || 'room',
         parentId: location.parentId || '',
         description: location.description || '',
+        qrSize: location.qrSize || 'medium',
+        photoUrl: location.photoUrl || '',
+        tags: location.tags || [],
         generateQR: false
       });
     }
@@ -192,6 +200,22 @@ export function LocationForm({ location, onSave, onCancel, onDelete }: LocationF
             />
           </div>
 
+          <PhotoUpload
+            label="Location Photo"
+            photoUrl={formData.photoUrl}
+            onPhotoChange={(photoUrl) => setFormData({ ...formData, photoUrl: photoUrl || '' })}
+            acceptedFormats={['image/jpeg', 'image/png', 'image/webp', 'image/gif']}
+            maxSizeMB={5}
+          />
+
+          <TagInput 
+            label="Tags"
+            tags={formData.tags}
+            onChange={(tags) => setFormData({ ...formData, tags })}
+            placeholder="Add tags to categorize this location"
+            maxTags={10}
+          />
+
           {!location && (
             <div className="form-group">
               <label className="checkbox-label">
@@ -205,6 +229,20 @@ export function LocationForm({ location, onSave, onCancel, onDelete }: LocationF
               <small className="form-help">QR codes help with quick component lookup and organization</small>
             </div>
           )}
+          
+          <div className="form-group">
+            <label className="form-label">QR Code Print Size</label>
+            <select
+              className="form-select"
+              value={formData.qrSize}
+              onChange={(e) => setFormData({ ...formData, qrSize: e.target.value as StorageLocation['qrSize'] })}
+            >
+              <option value="small">Small (good for small containers)</option>
+              <option value="medium">Medium (default, good for most locations)</option>
+              <option value="large">Large (good for main areas and walls)</option>
+            </select>
+            <small className="form-help">Choose the size for QR code printing - you can mix different sizes on the same page</small>
+          </div>
 
           <div className="form-actions">
             {location && onDelete && (

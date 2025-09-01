@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Plus, MapPin, Package, QrCode, Trash2, Square, CheckSquare, FileText } from 'lucide-react';
+import { Plus, MapPin, Package, QrCode, Trash2, Square, CheckSquare, FileText, Eye } from 'lucide-react';
 import { StorageLocation, Component } from '../types';
 import { LocationForm } from '../components/LocationForm';
 import { BulkDeleteDialog } from '../components/BulkDeleteDialog';
+import { LocationDetailView } from '../components/LocationDetailView';
+import { LinkifiedText } from '../utils/linkify';
 
 interface LocationWithChildren extends StorageLocation {
   children: LocationWithChildren[];
@@ -22,6 +24,8 @@ export function Locations() {
   const [qrCodeSize, setQrCodeSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [selectedQRLocations, setSelectedQRLocations] = useState<Set<string>>(new Set());
+  const [showDetailView, setShowDetailView] = useState(false);
+  const [detailLocationId, setDetailLocationId] = useState<string | null>(null);
 
   useEffect(() => {
     loadLocations();
@@ -55,6 +59,31 @@ export function Locations() {
   const handleEdit = (location: StorageLocation) => {
     setEditingLocation(location);
     setShowForm(true);
+  };
+
+  const handleViewDetails = (locationId: string) => {
+    setDetailLocationId(locationId);
+    setShowDetailView(true);
+  };
+
+  const handleDetailEdit = (location: StorageLocation) => {
+    setShowDetailView(false);
+    setDetailLocationId(null);
+    setEditingLocation(location);
+    setShowForm(true);
+  };
+
+  const handleDetailDelete = async (locationId: string) => {
+    if (!confirm('Are you sure you want to delete this location?')) return;
+
+    try {
+      await fetch(`/api/locations/${locationId}`, { method: 'DELETE' });
+      setShowDetailView(false);
+      setDetailLocationId(null);
+      loadLocations();
+    } catch (error) {
+      console.error('Error deleting location:', error);
+    }
   };
 
   const toggleBulkMode = () => {
@@ -250,9 +279,23 @@ export function Locations() {
             )}
           </div>
           
+          {location.description && (
+            <div className="location-description">
+              <LinkifiedText>{location.description}</LinkifiedText>
+            </div>
+          )}
+          
           <div className="location-actions">
             {!bulkMode && (
               <>
+                <button 
+                  className="btn-small"
+                  onClick={() => handleViewDetails(location.id)}
+                  title="View detailed information"
+                >
+                  <Eye size={14} />
+                  View Details
+                </button>
                 <button 
                   className="btn-small"
                   onClick={() => handleViewComponents(location)}
@@ -573,6 +616,18 @@ export function Locations() {
             </div>
           </div>
         </div>
+      )}
+
+      {showDetailView && detailLocationId && (
+        <LocationDetailView
+          locationId={detailLocationId}
+          onClose={() => {
+            setShowDetailView(false);
+            setDetailLocationId(null);
+          }}
+          onEdit={handleDetailEdit}
+          onDelete={handleDetailDelete}
+        />
       )}
     </div>
   );

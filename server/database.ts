@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -268,6 +268,29 @@ function runMigrations() {
         db.exec(`INSERT OR IGNORE INTO schema_version (version) VALUES (3)`);
       } else {
         console.error('Migration to version 3 failed:', error);
+        throw error;
+      }
+    }
+  }
+  
+  if (currentVersion < 4) {
+    console.log('Running migration to version 4: Adding qr_size to storage_locations');
+    try {
+      // Add qr_size column to storage_locations with default 'medium'
+      db.exec(`
+        ALTER TABLE storage_locations ADD COLUMN qr_size TEXT DEFAULT 'medium' CHECK(qr_size IN ('small', 'medium', 'large'));
+      `);
+      
+      // Update schema version
+      db.exec(`INSERT INTO schema_version (version) VALUES (4)`);
+      console.log('Migration to version 4 completed successfully');
+    } catch (error: any) {
+      // Column might already exist, check if that's the case
+      if (error.message.includes('duplicate column name')) {
+        console.log('qr_size column already exists in storage_locations');
+        db.exec(`INSERT OR IGNORE INTO schema_version (version) VALUES (4)`);
+      } else {
+        console.error('Migration to version 4 failed:', error);
         throw error;
       }
     }

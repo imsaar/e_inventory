@@ -13,60 +13,124 @@ router.use(rateLimit(200, 15 * 60 * 1000)); // 200 requests per 15 minutes
 router.get('/', validateQuery(schemas.search), (req, res) => {
   try {
     const filters: SearchFilters = req.query;
-    let sql = 'SELECT * FROM components WHERE 1=1';
+    let sql = `
+      SELECT c.*, sl.name as location_name 
+      FROM components c
+      LEFT JOIN storage_locations sl ON c.location_id = sl.id
+      WHERE 1=1
+    `;
     const params: any[] = [];
 
     // Build dynamic WHERE clause based on filters
     if (filters.category) {
-      sql += ' AND category = ?';
+      sql += ' AND c.category = ?';
       params.push(filters.category);
     }
     if (filters.subcategory) {
-      sql += ' AND subcategory = ?';
+      sql += ' AND c.subcategory = ?';
       params.push(filters.subcategory);
     }
     if (filters.manufacturer) {
-      sql += ' AND manufacturer LIKE ?';
+      sql += ' AND c.manufacturer LIKE ?';
       params.push(`%${filters.manufacturer}%`);
     }
     if (filters.status) {
-      sql += ' AND status = ?';
+      sql += ' AND c.status = ?';
       params.push(filters.status);
     }
     if (filters.locationId) {
-      sql += ' AND location_id = ?';
+      sql += ' AND c.location_id = ?';
       params.push(filters.locationId);
     }
     if (filters.minQuantity !== undefined) {
-      sql += ' AND quantity >= ?';
+      sql += ' AND c.quantity >= ?';
       params.push(filters.minQuantity);
     }
     if (filters.maxQuantity !== undefined) {
-      sql += ' AND quantity <= ?';
+      sql += ' AND c.quantity <= ?';
       params.push(filters.maxQuantity);
     }
 
-    // Search in name, part number, and description (validated input)
-    if (req.query.term) {
-      sql += ' AND (name LIKE ? OR part_number LIKE ? OR description LIKE ?)';
-      const searchTerm = `%${req.query.term}%`;
-      params.push(searchTerm, searchTerm, searchTerm);
+    // Part number search
+    if (filters.partNumber) {
+      sql += ' AND c.part_number LIKE ?';
+      params.push(`%${filters.partNumber}%`);
     }
 
-    sql += ' ORDER BY name ASC';
+    // Location name search
+    if (filters.locationName) {
+      sql += ' AND sl.name LIKE ?';
+      params.push(`%${filters.locationName}%`);
+    }
+
+    // Tag filtering - search within JSON string
+    if (filters.tags && filters.tags.length > 0) {
+      const tagConditions = filters.tags.map(() => 'c.tags LIKE ?').join(' AND ');
+      sql += ` AND (${tagConditions})`;
+      filters.tags.forEach(tag => {
+        params.push(`%"${tag}"%`);
+      });
+    }
+
+    // Enhanced search in name, part number, description, tags, and location
+    if (req.query.term) {
+      sql += ` AND (
+        c.name LIKE ? OR 
+        c.part_number LIKE ? OR 
+        c.description LIKE ? OR 
+        c.manufacturer LIKE ? OR
+        c.tags LIKE ? OR
+        sl.name LIKE ?
+      )`;
+      const searchTerm = `%${req.query.term}%`;
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+    }
+
+    // Sorting
+    const sortBy = req.query.sortBy || 'name';
+    const sortOrder = req.query.sortOrder || 'asc';
+    const columnPrefix = sortBy === 'location_name' ? 'sl' : 'c';
+    sql += ` ORDER BY ${columnPrefix}.${sortBy === 'location_name' ? 'name' : sortBy} ${(sortOrder as string).toUpperCase()}`;
 
     const stmt = db.prepare(sql);
     const rows = stmt.all(...params) as any[];
     
-    // Parse JSON fields
+    // Parse JSON fields and map database field names to API field names
     const components = rows.map((row: any) => ({
       ...row,
+      // Map database field names to camelCase API field names
+      partNumber: row.part_number,
+      packageType: row.package_type,
+      pinCount: row.pin_count,
+      minThreshold: row.min_threshold,
+      unitCost: row.unit_cost,
+      totalCost: row.total_cost,
+      locationId: row.location_id,
+      datasheetUrl: row.datasheet_url,
+      imageUrl: row.image_url,
+      purchaseDate: row.purchase_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      // Parse JSON fields
       tags: row.tags ? JSON.parse(row.tags) : [],
       dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
       weight: row.weight ? JSON.parse(row.weight) : undefined,
       voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
       current: row.current ? JSON.parse(row.current) : undefined,
       protocols: row.protocols ? JSON.parse(row.protocols) : [],
+      // Remove snake_case duplicates
+      part_number: undefined,
+      package_type: undefined,
+      pin_count: undefined,
+      min_threshold: undefined,
+      unit_cost: undefined,
+      total_cost: undefined,
+      location_id: undefined,
+      datasheet_url: undefined,
+      image_url: undefined,
+      purchase_date: undefined,
+      created_at: undefined,
+      updated_at: undefined
     }));
 
     res.json(components);
@@ -86,15 +150,42 @@ router.get('/:id', validateParams(['id']), (req, res) => {
       return res.status(404).json({ error: 'Component not found' });
     }
 
-    // Parse JSON fields
+    // Parse JSON fields and map database field names to API field names
     const component = {
       ...row,
+      // Map database field names to camelCase API field names
+      partNumber: row.part_number,
+      packageType: row.package_type,
+      pinCount: row.pin_count,
+      minThreshold: row.min_threshold,
+      unitCost: row.unit_cost,
+      totalCost: row.total_cost,
+      locationId: row.location_id,
+      datasheetUrl: row.datasheet_url,
+      imageUrl: row.image_url,
+      purchaseDate: row.purchase_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      // Parse JSON fields
       tags: row.tags ? JSON.parse(row.tags) : [],
       dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
       weight: row.weight ? JSON.parse(row.weight) : undefined,
       voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
       current: row.current ? JSON.parse(row.current) : undefined,
       protocols: row.protocols ? JSON.parse(row.protocols) : [],
+      // Remove snake_case duplicates
+      part_number: undefined,
+      package_type: undefined,
+      pin_count: undefined,
+      min_threshold: undefined,
+      unit_cost: undefined,
+      total_cost: undefined,
+      location_id: undefined,
+      datasheet_url: undefined,
+      image_url: undefined,
+      purchase_date: undefined,
+      created_at: undefined,
+      updated_at: undefined
     };
 
     res.json(component);
@@ -248,7 +339,48 @@ router.put('/:id', validateParams(['id']), validateSchema(schemas.component.part
       );
     }
 
-    res.json({ success: true, updatedAt: now });
+    // Get and return the updated component
+    const getStmt = db.prepare('SELECT * FROM components WHERE id = ?');
+    const row = getStmt.get(componentId) as any;
+    
+    const updatedComponent = {
+      ...row,
+      // Map database field names to camelCase API field names
+      partNumber: row.part_number,
+      packageType: row.package_type,
+      pinCount: row.pin_count,
+      minThreshold: row.min_threshold,
+      unitCost: row.unit_cost,
+      totalCost: row.total_cost,
+      locationId: row.location_id,
+      datasheetUrl: row.datasheet_url,
+      imageUrl: row.image_url,
+      purchaseDate: row.purchase_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      // Parse JSON fields
+      tags: row.tags ? JSON.parse(row.tags) : [],
+      dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
+      weight: row.weight ? JSON.parse(row.weight) : undefined,
+      voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
+      current: row.current ? JSON.parse(row.current) : undefined,
+      protocols: row.protocols ? JSON.parse(row.protocols) : [],
+      // Remove snake_case duplicates
+      part_number: undefined,
+      package_type: undefined,
+      pin_count: undefined,
+      min_threshold: undefined,
+      unit_cost: undefined,
+      total_cost: undefined,
+      location_id: undefined,
+      datasheet_url: undefined,
+      image_url: undefined,
+      purchase_date: undefined,
+      created_at: undefined,
+      updated_at: undefined
+    };
+
+    res.json(updatedComponent);
   } catch (error) {
     console.error('Error updating component:', error);
     res.status(500).json({ error: 'Failed to update component' });

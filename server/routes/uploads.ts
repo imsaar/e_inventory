@@ -48,24 +48,35 @@ const upload = multer({
 });
 
 // Single photo upload endpoint
-router.post('/photo', upload.single('photo'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No photo file provided' });
+router.post('/photo', (req, res) => {
+  upload.single('photo')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        return res.status(400).json({ error: err.message });
+      } else if (err.message) {
+        return res.status(400).json({ error: err.message });
+      }
+      return res.status(400).json({ error: 'Upload failed' });
     }
 
-    // Return the file URL
-    const photoUrl = `/uploads/${req.file.filename}`;
-    res.json({ 
-      success: true, 
-      photoUrl,
-      originalName: req.file.originalname,
-      size: req.file.size
-    });
-  } catch (error) {
-    console.error('Error uploading photo:', error);
-    res.status(500).json({ error: 'Failed to upload photo' });
-  }
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No photo file provided' });
+      }
+
+      // Return the file URL
+      const photoUrl = `/uploads/${req.file.filename}`;
+      res.json({ 
+        success: true, 
+        photoUrl,
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      res.status(500).json({ error: 'Failed to upload photo' });
+    }
+  });
 });
 
 // Delete photo endpoint

@@ -48,15 +48,17 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ## Recent Enhancements
 
-🆕 **QR Code System** - Generate printable QR codes in three sizes (small, medium, large) with selective location printing and size customization for different container types.
+🆕 **Advanced QR Code System** - Individual QR code size selection per location (small/medium/large) with flexible printing options. Mix different sizes on the same page for optimal container organization. Selective printing with location chooser dialog.
 
-📸 **Photo Management** - Upload and manage photos for components and locations with secure file handling, automatic resizing, and cleanup functionality.
+👁️ **Comprehensive Detail Views** - Rich detail views for both components and locations featuring hierarchical navigation, component statistics, photo displays, and quick action buttons. Full path breadcrumbs and parent-child relationship visualization.
 
-🏷️ **Enhanced Tagging** - Comprehensive tag support across all entities (components, locations, projects) with intuitive tag input and management.
+📸 **Complete Photo Management** - Drag-and-drop photo upload with secure file handling, automatic validation, and cleanup. Photos display in detail views and forms with error handling and proper security measures.
 
-🔗 **Rich Text Links** - Clickable links in descriptions automatically detected and rendered for easy access to datasheets and documentation.
+💰 **Enhanced Cost Management** - Full cost tracking implementation with unit costs, total costs, and proper financial calculations. Fixed cost saving functionality with comprehensive validation.
 
-🗄️ **Database Migrations** - Automatic schema versioning and migration system for seamless upgrades without data loss.
+🔧 **Improved User Experience** - "View Details" buttons throughout the interface, enhanced modal dialogs, better error handling, and streamlined workflows for common tasks.
+
+🗄️ **Database Evolution** - Advanced migration system (v1→v4) with proper schema versioning, field additions, and backward compatibility. Automatic upgrades without data loss.
 
 ## Quick Start
 
@@ -109,13 +111,14 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ### Storage Locations
 - `GET /api/locations` - List all locations (hierarchical)
-- `POST /api/locations` - Create new location
-- `PUT /api/locations/:id` - Update location
+- `GET /api/locations/:id` - Get location details with full path and statistics
+- `POST /api/locations` - Create new location with QR code generation and photo
+- `PUT /api/locations/:id` - Update location with QR size and photo management
 - `DELETE /api/locations/:id` - Delete location
 - `POST /api/locations/bulk-delete` - Bulk delete with dependency checking
 - `POST /api/locations/check-dependencies` - Check deletion dependencies
 - `GET /api/locations/:id/components` - Components in location
-- `GET /api/locations/qr-codes/pdf` - Generate QR codes with size and location selection
+- `GET /api/locations/qr-codes/pdf` - Generate QR codes with flexible size and location selection
 
 ### Projects
 - `GET /api/projects` - List all projects
@@ -217,9 +220,14 @@ cp data/inventory.db data/inventory-backup-$(date +%Y%m%d).db
 
 ### Running Tests
 ```bash
-npm test                 # Run all tests
+npm test                 # Run all tests (150+ test cases)
 npm run test:watch       # Run tests in watch mode
 npm run test:coverage    # Run tests with coverage report
+
+# Run specific test suites
+npm test qr-code-size.test.ts          # QR code functionality tests
+npm test photo-management.test.ts      # Photo upload and management tests  
+npm test location-detail-view.test.ts  # Detail view functionality tests
 ```
 
 ### Code Quality

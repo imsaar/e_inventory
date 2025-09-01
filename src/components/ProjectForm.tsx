@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Save, Folder, Trash2 } from 'lucide-react';
 import { Project } from '../types';
 import { LinkifiedText } from '../utils/linkify';
+import { TagInput } from './TagInput';
 
 interface ProjectFormProps {
   project?: Project | null;
@@ -24,7 +25,8 @@ export function ProjectForm({ project, onSave, onCancel, onDelete }: ProjectForm
     status: 'planning' as Project['status'],
     startDate: '',
     completedDate: '',
-    notes: ''
+    notes: '',
+    tags: [] as string[]
   });
 
   useEffect(() => {
@@ -35,7 +37,8 @@ export function ProjectForm({ project, onSave, onCancel, onDelete }: ProjectForm
         status: project.status || 'planning',
         startDate: project.startDate || '',
         completedDate: project.completedDate || '',
-        notes: project.notes || ''
+        notes: project.notes || '',
+        tags: project.tags || []
       });
     }
   }, [project]);
@@ -125,6 +128,14 @@ export function ProjectForm({ project, onSave, onCancel, onDelete }: ProjectForm
               placeholder="Describe what this project is about, its goals, and key features..."
             />
           </div>
+
+          <TagInput 
+            label="Tags"
+            tags={formData.tags}
+            onChange={(tags) => setFormData({ ...formData, tags })}
+            placeholder="Add tags to categorize this project"
+            maxTags={10}
+          />
 
           <div className="form-row">
             <div className="form-group">

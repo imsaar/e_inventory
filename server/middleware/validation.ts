@@ -34,7 +34,7 @@ export const schemas = {
     minThreshold: z.number().int().min(0, 'Min threshold cannot be negative').max(1000000, 'Min threshold too large').optional(),
     status: z.enum(['available', 'in_use', 'reserved', 'needs_testing', 'defective']).optional(),
     notes: z.string().max(2000, 'Notes too long').optional().or(z.literal('')),
-    tags: z.array(z.string()).optional(),
+    tags: z.array(z.string().max(50, 'Tag too long')).max(10, 'Too many tags').optional(),
     unitCost: z.number().min(0, 'Unit cost cannot be negative').max(1000000, 'Unit cost too large').optional(),
     totalCost: z.number().min(0, 'Total cost cannot be negative').max(1000000, 'Total cost too large').optional(),
     supplier: z.string().max(100, 'Supplier name too long').optional().or(z.literal('')),
@@ -62,7 +62,11 @@ export const schemas = {
     type: z.enum(['room', 'cabinet', 'drawer', 'box', 'shelf', 'bin']),
     parentId: z.string().regex(/^[a-fA-F0-9]{32}$|^[a-fA-F0-9-]{36}$/, 'Invalid parent ID').optional().or(z.literal('')),
     description: z.string().max(2000, 'Description too long').optional().or(z.literal('')),
-    qrCode: z.string().max(100, 'QR code too long').optional().or(z.literal(''))
+    qrCode: z.string().max(100, 'QR code too long').optional().or(z.literal('')),
+    qrSize: z.enum(['small', 'medium', 'large']).optional(),
+    photoUrl: z.string().max(500, 'Photo URL too long').optional().or(z.literal('')),
+    generateQR: z.boolean().optional(),
+    tags: z.array(z.string().max(50, 'Tag too long')).max(10, 'Too many tags').optional()
   }),
 
   // Project validation
@@ -72,16 +76,25 @@ export const schemas = {
     status: z.enum(['planning', 'active', 'completed', 'on_hold']).optional(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional().or(z.literal('')),
     completedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional().or(z.literal('')),
-    notes: z.string().max(2000, 'Notes too long').optional().or(z.literal(''))
+    notes: z.string().max(2000, 'Notes too long').optional().or(z.literal('')),
+    tags: z.array(z.string().max(50, 'Tag too long')).max(10, 'Too many tags').optional()
   }),
 
   // Search and filter validation
   search: z.object({
     term: z.string().max(100, 'Search term too long').optional(),
     category: z.string().max(100, 'Category too long').optional(),
+    subcategory: z.string().max(100, 'Subcategory too long').optional(),
     manufacturer: z.string().max(100, 'Manufacturer too long').optional(),
     status: z.enum(['available', 'in_use', 'reserved', 'needs_testing', 'defective']).optional(),
-    minQuantity: z.number().int().min(0).max(1000000).optional()
+    locationId: z.string().regex(/^[a-fA-F0-9]{32}$|^[a-fA-F0-9-]{36}$/, 'Invalid location ID').optional(),
+    locationName: z.string().max(100, 'Location name too long').optional(),
+    minQuantity: z.number().int().min(0).max(1000000).optional(),
+    maxQuantity: z.number().int().min(0).max(1000000).optional(),
+    tags: z.array(z.string().max(50, 'Tag too long')).max(10, 'Too many tags').optional(),
+    partNumber: z.string().max(100, 'Part number too long').optional(),
+    sortBy: z.enum(['name', 'category', 'quantity', 'updated_at', 'created_at']).optional(),
+    sortOrder: z.enum(['asc', 'desc']).optional()
   }),
 
   // Bulk delete validation
@@ -138,10 +151,16 @@ export function validateSchema(schema: z.ZodSchema) {
 export function validateQuery(schema: z.ZodSchema) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Convert query string numbers
+      // Convert query string numbers and arrays
       const query: any = { ...req.query };
       if (query.minQuantity) {
         query.minQuantity = parseInt(query.minQuantity as string);
+      }
+      // Handle tags array - can be comma-separated string or array
+      if (query.tags) {
+        if (typeof query.tags === 'string') {
+          query.tags = query.tags.split(',').map((tag: string) => tag.trim()).filter(Boolean);
+        }
       }
       
       const validated = schema.parse(query);
@@ -199,16 +218,16 @@ export function validateParams(paramNames: string[]) {
   };
 }
 
-// Sanitize strings to prevent XSS
+// Sanitize strings to prevent XSS while preserving URLs
 export function sanitizeStrings(req: Request, res: Response, next: NextFunction) {
   function sanitizeValue(value: any): any {
     if (typeof value === 'string') {
+      // Don't escape forward slashes to preserve URLs
       return value
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#x27;')
-        .replace(/\//g, '&#x2F;');
+        .replace(/'/g, '&#x27;');
     } else if (typeof value === 'object' && value !== null) {
       if (Array.isArray(value)) {
         return value.map(sanitizeValue);

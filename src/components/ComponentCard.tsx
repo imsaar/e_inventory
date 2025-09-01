@@ -1,17 +1,19 @@
-import { Edit, Trash2, ExternalLink, Square, CheckSquare } from 'lucide-react';
+import { Edit, Trash2, ExternalLink, Square, CheckSquare, Eye } from 'lucide-react';
 import { Component } from '../types';
+import { LinkifiedText } from '../utils/linkify';
 
 interface ComponentCardProps {
   component: Component;
   viewMode: 'grid' | 'list';
   onEdit: () => void;
   onDelete: () => void;
+  onViewDetails?: () => void;
   bulkMode?: boolean;
   isSelected?: boolean;
   onToggleSelection?: () => void;
 }
 
-export function ComponentCard({ component, viewMode, onEdit, onDelete, bulkMode = false, isSelected = false, onToggleSelection }: ComponentCardProps) {
+export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDetails, bulkMode = false, isSelected = false, onToggleSelection }: ComponentCardProps) {
   const getQuantityClass = (quantity: number, minThreshold: number) => {
     if (quantity === 0) return 'out';
     if (quantity <= minThreshold) return 'low';
@@ -63,6 +65,11 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, bulkMode 
           <div className="list-actions">
             {!bulkMode && (
               <>
+                {onViewDetails && (
+                  <button onClick={onViewDetails} className="btn-icon" title="View Details">
+                    <Eye size={16} />
+                  </button>
+                )}
                 <button onClick={onEdit} className="btn-icon" title="Edit">
                   <Edit size={16} />
                 </button>
@@ -101,6 +108,11 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, bulkMode 
         <div className="card-actions">
           {!bulkMode && (
             <>
+              {onViewDetails && (
+                <button onClick={onViewDetails} className="btn-icon" title="View Details">
+                  <Eye size={16} />
+                </button>
+              )}
               <button onClick={onEdit} className="btn-icon" title="Edit">
                 <Edit size={16} />
               </button>
@@ -116,6 +128,12 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, bulkMode 
       
       {component.manufacturer && (
         <div className="component-manufacturer">{component.manufacturer}</div>
+      )}
+
+      {component.description && (
+        <div className="component-description">
+          <LinkifiedText>{component.description}</LinkifiedText>
+        </div>
       )}
 
       <div className="component-details">

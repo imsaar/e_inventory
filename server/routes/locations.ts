@@ -18,6 +18,7 @@ const mapLocationRow = (row: any): StorageLocation => ({
   parentId: row.parent_id,
   description: row.description,
   qrCode: row.qr_code,
+  qrSize: row.qr_size || 'medium',
   coordinates: row.coordinates_x ? {
     x: row.coordinates_x,
     y: row.coordinates_y,
@@ -100,7 +101,7 @@ router.get('/:id', (req, res) => {
 });
 
 // Create new storage location
-router.post('/', (req, res) => {
+router.post('/', validateSchema(schemas.location), (req, res) => {
   try {
     const location: Partial<StorageLocation> = req.body;
     const id = uuidv4();
@@ -114,9 +115,9 @@ router.post('/', (req, res) => {
 
     const stmt = db.prepare(`
       INSERT INTO storage_locations (
-        id, name, type, parent_id, description, qr_code,
+        id, name, type, parent_id, description, qr_code, qr_size,
         coordinates_x, coordinates_y, coordinates_z, photo_url, tags, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -126,6 +127,7 @@ router.post('/', (req, res) => {
       location.parentId || null,
       location.description || null,
       qrCode || null,
+      location.qrSize || 'medium',
       location.coordinates?.x || null,
       location.coordinates?.y || null,
       location.coordinates?.z || null,
@@ -148,7 +150,7 @@ router.post('/', (req, res) => {
 });
 
 // Update storage location
-router.put('/:id', (req, res) => {
+router.put('/:id', validateParams(['id']), validateSchema(schemas.location.partial()), (req, res) => {
   try {
     const locationId = req.params.id;
     const updates: Partial<StorageLocation> = req.body;
@@ -161,6 +163,7 @@ router.put('/:id', (req, res) => {
         parent_id = COALESCE(?, parent_id),
         description = COALESCE(?, description),
         qr_code = COALESCE(?, qr_code),
+        qr_size = COALESCE(?, qr_size),
         coordinates_x = COALESCE(?, coordinates_x),
         coordinates_y = COALESCE(?, coordinates_y),
         coordinates_z = COALESCE(?, coordinates_z),
@@ -176,6 +179,7 @@ router.put('/:id', (req, res) => {
       updates.parentId,
       updates.description,
       updates.qrCode,
+      updates.qrSize,
       updates.coordinates?.x,
       updates.coordinates?.y,
       updates.coordinates?.z,

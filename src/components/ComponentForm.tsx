@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Save, Trash2 } from 'lucide-react';
 import { Component, StorageLocation } from '../types';
+import { TagInput } from './TagInput';
 
 interface ComponentFormProps {
   component?: Component | null;
@@ -272,6 +273,14 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
               rows={2}
             />
           </div>
+
+          <TagInput 
+            label="Tags"
+            tags={formData.tags}
+            onChange={(tags) => setFormData({ ...formData, tags })}
+            placeholder="Add tags to categorize this component"
+            maxTags={10}
+          />
 
           <div className="form-row">
             <div className="form-group">

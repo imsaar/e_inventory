@@ -64,6 +64,7 @@ export interface StorageLocation {
   parentId?: string;
   description?: string;
   qrCode?: string;
+  qrSize?: 'small' | 'medium' | 'large';
   coordinates?: {
     x: number;
     y: number;
@@ -110,18 +111,23 @@ export interface ComponentHistory {
 }
 
 export interface SearchFilters {
+  term?: string;
   category?: string;
   subcategory?: string;
   tags?: string[];
   manufacturer?: string;
   status?: Component['status'];
   locationId?: string;
+  locationName?: string;
+  partNumber?: string;
   minVoltage?: number;
   maxVoltage?: number;
   protocols?: string[];
   minQuantity?: number;
   maxQuantity?: number;
   hasDatasheet?: boolean;
+  sortBy?: 'name' | 'category' | 'quantity' | 'updated_at' | 'created_at' | 'location_name';
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface BOM {
