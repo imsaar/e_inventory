@@ -69,6 +69,8 @@ export interface StorageLocation {
     y: number;
     z?: number;
   };
+  photoUrl?: string;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +83,7 @@ export interface Project {
   startDate?: string;
   completedDate?: string;
   notes?: string;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 }

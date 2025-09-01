@@ -5,18 +5,50 @@ import fs from 'fs';
 
 // Determine database path based on environment
 const isTest = process.env.NODE_ENV === 'test';
-const dataDir = isTest ? path.join(__dirname, '../data/test') : path.join(__dirname, '../data');
-const dbPath = process.env.DB_PATH || path.join(dataDir, isTest ? 'test-inventory.db' : 'inventory.db');
+const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Database configuration based on environment
+let dataDir: string;
+let dbFilename: string;
+
+if (isTest) {
+  dataDir = path.join(__dirname, '../data/test');
+  dbFilename = `test-inventory-${Date.now()}.db`; // Unique DB per test run
+} else if (isDevelopment) {
+  dataDir = path.join(__dirname, '../data');
+  dbFilename = 'inventory-dev.db';
+} else if (isProduction) {
+  dataDir = process.env.DATA_DIR || path.join(__dirname, '../data');
+  dbFilename = 'inventory.db';
+} else {
+  dataDir = path.join(__dirname, '../data');
+  dbFilename = 'inventory.db';
+}
+
+const dbPath = process.env.DB_PATH || path.join(dataDir, dbFilename);
 
 // Ensure data directory exists
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
+// Log database configuration (not in production)
+if (!isProduction) {
+  console.log(`Database configuration:
+  Environment: ${process.env.NODE_ENV || 'development'}
+  Database path: ${dbPath}
+  Is test: ${isTest}
+  `);
+}
+
 const db = new Database(dbPath);
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
+
+// Schema version for migrations
+const CURRENT_SCHEMA_VERSION = 3;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -32,6 +64,7 @@ export function initializeDatabase() {
       coordinates_x REAL,
       coordinates_y REAL,
       coordinates_z REAL,
+      photo_url TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (parent_id) REFERENCES storage_locations(id) ON DELETE CASCADE
@@ -165,16 +198,79 @@ export function initializeDatabase() {
     VALUES (?, ?, 'category_placeholder', 0, 0, datetime('now'), datetime('now'))
   `);
 
-  // Create default storage location
-  const defaultLocationStmt = db.prepare(`
-    INSERT OR IGNORE INTO storage_locations (id, name, type, created_at, updated_at)
-    VALUES (?, 'Workshop', 'room', datetime('now'), datetime('now'))
+  // No default locations created automatically
+  // Users should create their own storage locations as needed
+  
+  // Run database migrations
+  runMigrations();
+}
+
+// Database migrations
+function runMigrations() {
+  // Create schema_version table if it doesn't exist
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_version (
+      version INTEGER PRIMARY KEY
+    )
   `);
   
-  try {
-    defaultLocationStmt.run(uuidv4());
-  } catch (error) {
-    // Location might already exist
+  // Get current version
+  const versionStmt = db.prepare('SELECT version FROM schema_version ORDER BY version DESC LIMIT 1');
+  const currentVersionRow = versionStmt.get() as { version: number } | undefined;
+  const currentVersion = currentVersionRow?.version || 1;
+  
+  console.log(`Current schema version: ${currentVersion}, target version: ${CURRENT_SCHEMA_VERSION}`);
+  
+  // Run migrations if needed
+  if (currentVersion < 2) {
+    console.log('Running migration to version 2: Adding photo_url to storage_locations');
+    try {
+      // Add photo_url column to storage_locations if it doesn't exist
+      db.exec(`
+        ALTER TABLE storage_locations ADD COLUMN photo_url TEXT DEFAULT NULL;
+      `);
+      
+      // Update schema version
+      db.exec(`INSERT INTO schema_version (version) VALUES (2)`);
+      console.log('Migration to version 2 completed successfully');
+    } catch (error: any) {
+      // Column might already exist, check if that's the case
+      if (error.message.includes('duplicate column name')) {
+        console.log('photo_url column already exists in storage_locations');
+        db.exec(`INSERT OR IGNORE INTO schema_version (version) VALUES (2)`);
+      } else {
+        console.error('Migration to version 2 failed:', error);
+        throw error;
+      }
+    }
+  }
+  
+  if (currentVersion < 3) {
+    console.log('Running migration to version 3: Adding tags to storage_locations and projects');
+    try {
+      // Add tags column to storage_locations if it doesn't exist
+      db.exec(`
+        ALTER TABLE storage_locations ADD COLUMN tags TEXT DEFAULT NULL;
+      `);
+      
+      // Add tags column to projects if it doesn't exist
+      db.exec(`
+        ALTER TABLE projects ADD COLUMN tags TEXT DEFAULT NULL;
+      `);
+      
+      // Update schema version
+      db.exec(`INSERT INTO schema_version (version) VALUES (3)`);
+      console.log('Migration to version 3 completed successfully');
+    } catch (error: any) {
+      // Column might already exist, check if that's the case
+      if (error.message.includes('duplicate column name')) {
+        console.log('tags columns already exist');
+        db.exec(`INSERT OR IGNORE INTO schema_version (version) VALUES (3)`);
+      } else {
+        console.error('Migration to version 3 failed:', error);
+        throw error;
+      }
+    }
   }
 }
 
@@ -194,6 +290,53 @@ export function addComponentHistory(
   `);
   
   stmt.run(uuidv4(), componentId, action, previousValue, newValue, quantity, projectId, notes);
+}
+
+// Database utility functions for testing
+export function getDatabaseInfo() {
+  return {
+    path: dbPath,
+    isTest,
+    isDevelopment,
+    isProduction,
+    dataDir
+  };
+}
+
+// Test helper function to reset database
+export function resetDatabase() {
+  if (!isTest) {
+    throw new Error('resetDatabase can only be called in test environment');
+  }
+  
+  // Drop all tables
+  const tables = [
+    'component_history',
+    'project_components', 
+    'boms',
+    'components',
+    'projects',
+    'storage_locations',
+    'users'
+  ];
+  
+  tables.forEach(table => {
+    try {
+      db.exec(`DROP TABLE IF EXISTS ${table}`);
+    } catch (error) {
+      // Ignore errors, table might not exist
+    }
+  });
+  
+  // Re-initialize schema
+  initializeDatabase();
+}
+
+// Clean up function for tests
+export function closeDatabase() {
+  if (db) {
+    db.close();
+  }
 }
 
 export default db;

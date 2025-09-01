@@ -5,11 +5,26 @@ import { Project, BOM } from '../../src/types';
 
 const router = express.Router();
 
+// Helper function to convert database row to API format
+const mapProjectRow = (row: any): Project => ({
+  id: row.id,
+  name: row.name,
+  description: row.description,
+  status: row.status,
+  startDate: row.start_date,
+  completedDate: row.completed_date,
+  notes: row.notes,
+  tags: row.tags ? JSON.parse(row.tags) : [],
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
 // Get all projects
 router.get('/', (req, res) => {
   try {
     const stmt = db.prepare('SELECT * FROM projects ORDER BY created_at DESC');
-    const projects = stmt.all();
+    const rows = stmt.all();
+    const projects = rows.map(mapProjectRow);
     res.json(projects);
   } catch (error) {
     console.error('Error fetching projects:', error);
@@ -52,8 +67,8 @@ router.post('/', (req, res) => {
     const now = new Date().toISOString();
 
     const stmt = db.prepare(`
-      INSERT INTO projects (id, name, description, status, start_date, completed_date, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (id, name, description, status, start_date, completed_date, notes, tags, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -64,11 +79,17 @@ router.post('/', (req, res) => {
       project.startDate || null,
       project.completedDate || null,
       project.notes || null,
+      project.tags ? JSON.stringify(project.tags) : null,
       now,
       now
     );
 
-    res.status(201).json({ id, ...project, createdAt: now, updatedAt: now });
+    // Fetch the created project to return proper format
+    const createdStmt = db.prepare('SELECT * FROM projects WHERE id = ?');
+    const createdRow = createdStmt.get(id);
+    const newProject = mapProjectRow(createdRow);
+
+    res.status(201).json(newProject);
   } catch (error) {
     console.error('Error creating project:', error);
     res.status(500).json({ error: 'Failed to create project' });
@@ -90,6 +111,7 @@ router.put('/:id', (req, res) => {
         start_date = COALESCE(?, start_date),
         completed_date = COALESCE(?, completed_date),
         notes = COALESCE(?, notes),
+        tags = COALESCE(?, tags),
         updated_at = ?
       WHERE id = ?
     `);
@@ -101,6 +123,7 @@ router.put('/:id', (req, res) => {
       updates.startDate,
       updates.completedDate,
       updates.notes,
+      updates.tags ? JSON.stringify(updates.tags) : undefined,
       now,
       projectId
     );
@@ -109,7 +132,12 @@ router.put('/:id', (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    res.json({ success: true, updatedAt: now });
+    // Fetch the updated project to return proper format
+    const updatedStmt = db.prepare('SELECT * FROM projects WHERE id = ?');
+    const updatedRow = updatedStmt.get(projectId);
+    const updatedProject = mapProjectRow(updatedRow);
+
+    res.json(updatedProject);
   } catch (error) {
     console.error('Error updating project:', error);
     res.status(500).json({ error: 'Failed to update project' });

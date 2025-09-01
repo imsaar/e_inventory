@@ -110,13 +110,16 @@ export function LocationForm({ location, onSave, onCancel, onDelete }: LocationF
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to delete location');
+          const errorMessage = errorData.error || 'Failed to delete location';
+          const errorDetails = errorData.details ? '\n\n' + errorData.details.join('\n') : '';
+          throw new Error(errorMessage + errorDetails);
         }
 
         onDelete();
       } catch (error) {
         console.error('Error deleting location:', error);
-        alert(`Error deleting location: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const message = error instanceof Error ? error.message : 'Unknown error occurred';
+        alert(`Cannot delete location:\n\n${message}`);
       }
     }
   };

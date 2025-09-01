@@ -2,11 +2,15 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import db, { addComponentHistory } from '../database';
 import { Component, SearchFilters } from '../../src/types';
+import { validateSchema, validateQuery, validateParams, schemas, rateLimit } from '../middleware/validation';
 
 const router = express.Router();
 
+// Apply rate limiting to all routes
+router.use(rateLimit(200, 15 * 60 * 1000)); // 200 requests per 15 minutes
+
 // Get all components with optional filtering
-router.get('/', (req, res) => {
+router.get('/', validateQuery(schemas.search), (req, res) => {
   try {
     const filters: SearchFilters = req.query;
     let sql = 'SELECT * FROM components WHERE 1=1';
@@ -42,10 +46,10 @@ router.get('/', (req, res) => {
       params.push(filters.maxQuantity);
     }
 
-    // Search in name, part number, and description
-    if (req.query.search) {
+    // Search in name, part number, and description (validated input)
+    if (req.query.term) {
       sql += ' AND (name LIKE ? OR part_number LIKE ? OR description LIKE ?)';
-      const searchTerm = `%${req.query.search}%`;
+      const searchTerm = `%${req.query.term}%`;
       params.push(searchTerm, searchTerm, searchTerm);
     }
 
@@ -68,12 +72,12 @@ router.get('/', (req, res) => {
     res.json(components);
   } catch (error) {
     console.error('Error fetching components:', error);
-    res.status(500).json({ error: 'Failed to fetch components' });
+    res.status(500).json({ error: 'Internal server error' }); // Generic error message for security
   }
 });
 
 // Get component by ID
-router.get('/:id', (req, res) => {
+router.get('/:id', validateParams(['id']), (req, res) => {
   try {
     const stmt = db.prepare('SELECT * FROM components WHERE id = ?');
     const row = stmt.get(req.params.id) as any;
@@ -101,7 +105,7 @@ router.get('/:id', (req, res) => {
 });
 
 // Create new component
-router.post('/', (req, res) => {
+router.post('/', validateSchema(schemas.component), (req, res) => {
   try {
     const component: Partial<Component> = req.body;
     const id = uuidv4();
@@ -158,7 +162,7 @@ router.post('/', (req, res) => {
 });
 
 // Update component
-router.put('/:id', (req, res) => {
+router.put('/:id', validateParams(['id']), validateSchema(schemas.component.partial()), (req, res) => {
   try {
     const componentId = req.params.id;
     const updates: Partial<Component> = req.body;
@@ -252,7 +256,7 @@ router.put('/:id', (req, res) => {
 });
 
 // Delete component
-router.delete('/:id', (req, res) => {
+router.delete('/:id', validateParams(['id']), (req, res) => {
   try {
     const stmt = db.prepare('DELETE FROM components WHERE id = ?');
     const result = stmt.run(req.params.id);
@@ -269,7 +273,7 @@ router.delete('/:id', (req, res) => {
 });
 
 // Get component history
-router.get('/:id/history', (req, res) => {
+router.get('/:id/history', validateParams(['id']), (req, res) => {
   try {
     const stmt = db.prepare(`
       SELECT * FROM component_history 
@@ -308,7 +312,7 @@ router.get('/alerts/low-stock', (req, res) => {
 });
 
 // Bulk delete components with dependency checking
-router.post('/bulk-delete', (req, res) => {
+router.post('/bulk-delete', validateSchema(schemas.bulkDelete), (req, res) => {
   try {
     const { componentIds } = req.body;
     
@@ -396,7 +400,7 @@ router.post('/bulk-delete', (req, res) => {
 });
 
 // Check dependencies for components (for preview before delete)
-router.post('/check-dependencies', (req, res) => {
+router.post('/check-dependencies', validateSchema(schemas.bulkDelete), (req, res) => {
   try {
     const { componentIds } = req.body;
     

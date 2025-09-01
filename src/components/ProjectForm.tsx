@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Save, Folder, Trash2 } from 'lucide-react';
 import { Project } from '../types';
+import { LinkifiedText } from '../utils/linkify';
 
 interface ProjectFormProps {
   project?: Project | null;
@@ -187,7 +188,9 @@ export function ProjectForm({ project, onSave, onCancel, onDelete }: ProjectForm
                 </span>
               </div>
               {formData.description && (
-                <p className="preview-description">{formData.description}</p>
+                <p className="preview-description">
+                  <LinkifiedText>{formData.description}</LinkifiedText>
+                </p>
               )}
             </div>
           </div>

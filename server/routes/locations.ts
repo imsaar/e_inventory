@@ -1,9 +1,14 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../database';
+import { validateSchema, validateParams, schemas, rateLimit } from '../middleware/validation';
 import { StorageLocation } from '../../src/types';
+import { generateQRCodeHTML } from '../utils/htmlQR';
 
 const router = express.Router();
+
+// Apply rate limiting to all routes
+router.use(rateLimit(200, 15 * 60 * 1000)); // 200 requests per 15 minutes
 
 // Helper function to convert database row to API format
 const mapLocationRow = (row: any): StorageLocation => ({
@@ -18,6 +23,8 @@ const mapLocationRow = (row: any): StorageLocation => ({
     y: row.coordinates_y,
     z: row.coordinates_z
   } : undefined,
+  photoUrl: row.photo_url,
+  tags: row.tags ? JSON.parse(row.tags) : [],
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -108,8 +115,8 @@ router.post('/', (req, res) => {
     const stmt = db.prepare(`
       INSERT INTO storage_locations (
         id, name, type, parent_id, description, qr_code,
-        coordinates_x, coordinates_y, coordinates_z, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        coordinates_x, coordinates_y, coordinates_z, photo_url, tags, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -122,6 +129,8 @@ router.post('/', (req, res) => {
       location.coordinates?.x || null,
       location.coordinates?.y || null,
       location.coordinates?.z || null,
+      location.photoUrl || null,
+      location.tags ? JSON.stringify(location.tags) : null,
       now,
       now
     );
@@ -155,6 +164,8 @@ router.put('/:id', (req, res) => {
         coordinates_x = COALESCE(?, coordinates_x),
         coordinates_y = COALESCE(?, coordinates_y),
         coordinates_z = COALESCE(?, coordinates_z),
+        photo_url = COALESCE(?, photo_url),
+        tags = COALESCE(?, tags),
         updated_at = ?
       WHERE id = ?
     `);
@@ -168,6 +179,8 @@ router.put('/:id', (req, res) => {
       updates.coordinates?.x,
       updates.coordinates?.y,
       updates.coordinates?.z,
+      updates.photoUrl,
+      updates.tags ? JSON.stringify(updates.tags) : undefined,
       now,
       locationId
     );
@@ -189,28 +202,8 @@ router.put('/:id', (req, res) => {
 });
 
 // Delete storage location
-router.delete('/:id', (req, res) => {
+router.delete('/:id', validateParams(['id']), (req, res) => {
   try {
-    // Check if location has components
-    const componentsStmt = db.prepare('SELECT COUNT(*) as count FROM components WHERE location_id = ?');
-    const componentCount = componentsStmt.get(req.params.id) as { count: number };
-    
-    if (componentCount.count > 0) {
-      return res.status(400).json({ 
-        error: 'Cannot delete location with components. Move components first.' 
-      });
-    }
-
-    // Check if location has children
-    const childrenStmt = db.prepare('SELECT COUNT(*) as count FROM storage_locations WHERE parent_id = ?');
-    const childCount = childrenStmt.get(req.params.id) as { count: number };
-    
-    if (childCount.count > 0) {
-      return res.status(400).json({ 
-        error: 'Cannot delete location with child locations. Delete children first.' 
-      });
-    }
-
     const stmt = db.prepare('DELETE FROM storage_locations WHERE id = ?');
     const result = stmt.run(req.params.id);
     
@@ -244,7 +237,7 @@ router.get('/:id/components', (req, res) => {
   }
 });
 
-// Bulk delete locations with dependency checking
+// Bulk delete locations
 router.post('/bulk-delete', (req, res) => {
   try {
     const { locationIds } = req.body;
@@ -253,89 +246,31 @@ router.post('/bulk-delete', (req, res) => {
       return res.status(400).json({ error: 'No locations specified for deletion' });
     }
 
-    const errors: Array<{ id: string; name: string; error: string; dependencies?: any[] }> = [];
-    const successful: string[] = [];
+    const deleted: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
 
-    // Check dependencies for each location
     for (const locationId of locationIds) {
-      const locationStmt = db.prepare('SELECT * FROM storage_locations WHERE id = ?');
-      const location = locationStmt.get(locationId) as any;
-      
-      if (!location) {
-        errors.push({
-          id: locationId,
-          name: 'Unknown',
-          error: 'Location not found'
-        });
-        continue;
-      }
-
-      // Check for components in this location
-      const componentsStmt = db.prepare('SELECT COUNT(*) as count, GROUP_CONCAT(name, ", ") as names FROM components WHERE location_id = ?');
-      const componentResult = componentsStmt.get(locationId) as { count: number; names: string };
-
-      if (componentResult.count > 0) {
-        errors.push({
-          id: locationId,
-          name: location.name,
-          error: 'Cannot delete location with components',
-          dependencies: [{
-            type: 'components',
-            count: componentResult.count,
-            items: componentResult.names?.split(', ') || []
-          }]
-        });
-        continue;
-      }
-
-      // Check for child locations
-      const childrenStmt = db.prepare('SELECT COUNT(*) as count, GROUP_CONCAT(name, ", ") as names FROM storage_locations WHERE parent_id = ?');
-      const childResult = childrenStmt.get(locationId) as { count: number; names: string };
-
-      if (childResult.count > 0) {
-        errors.push({
-          id: locationId,
-          name: location.name,
-          error: 'Cannot delete location with child locations',
-          dependencies: [{
-            type: 'child_locations',
-            count: childResult.count,
-            items: childResult.names?.split(', ') || []
-          }]
-        });
-        continue;
-      }
-
-      // Safe to delete
       try {
-        const deleteStmt = db.prepare('DELETE FROM storage_locations WHERE id = ?');
-        const result = deleteStmt.run(locationId);
+        const stmt = db.prepare('DELETE FROM storage_locations WHERE id = ?');
+        const result = stmt.run(locationId);
         
         if (result.changes > 0) {
-          successful.push(locationId);
+          deleted.push(locationId);
         } else {
-          errors.push({
-            id: locationId,
-            name: location.name,
-            error: 'Failed to delete location'
-          });
+          failed.push({ id: locationId, error: 'Location not found' });
         }
-      } catch (deleteError) {
-        errors.push({
-          id: locationId,
-          name: location.name,
-          error: 'Database error during deletion'
-        });
+      } catch (error) {
+        failed.push({ id: locationId, error: 'Database error during deletion' });
       }
     }
 
     res.json({
-      successful,
-      errors,
+      deleted,
+      failed,
       summary: {
         total: locationIds.length,
-        deleted: successful.length,
-        failed: errors.length
+        deleted: deleted.length,
+        failed: failed.length
       }
     });
 
@@ -345,67 +280,58 @@ router.post('/bulk-delete', (req, res) => {
   }
 });
 
-// Check dependencies for locations (for preview before delete)
-router.post('/check-dependencies', (req, res) => {
+// Generate QR codes PDF for locations
+router.get('/qr-codes/pdf', (req, res) => {
   try {
-    const { locationIds } = req.body;
+    // Parse and validate size parameter
+    const sizeParam = req.query.size as string;
+    const validSizes = ['small', 'medium', 'large'] as const;
+    const qrSize = validSizes.includes(sizeParam as any) ? sizeParam as 'small' | 'medium' | 'large' : 'medium';
     
-    if (!Array.isArray(locationIds)) {
-      return res.status(400).json({ error: 'locationIds must be an array' });
+    // Parse location IDs parameter if provided
+    const locationIdsParam = req.query.locationIds as string;
+    let whereClause = 'WHERE qr_code IS NOT NULL AND qr_code != \'\'';
+    let queryParams: any[] = [];
+    
+    if (locationIdsParam) {
+      const locationIds = locationIdsParam.split(',').map(id => id.trim()).filter(id => id);
+      if (locationIds.length > 0) {
+        const placeholders = locationIds.map(() => '?').join(',');
+        whereClause += ` AND id IN (${placeholders})`;
+        queryParams = locationIds;
+      }
+    }
+    
+    const stmt = db.prepare(`
+      SELECT * FROM storage_locations 
+      ${whereClause}
+      ORDER BY name ASC
+    `);
+    const rows = queryParams.length > 0 ? stmt.all(...queryParams) : stmt.all();
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'No locations with QR codes found',
+        details: ['Create locations with QR codes first, or check your selection']
+      });
     }
 
-    const results = locationIds.map(locationId => {
-      const locationStmt = db.prepare('SELECT * FROM storage_locations WHERE id = ?');
-      const location = locationStmt.get(locationId) as any;
-      
-      if (!location) {
-        return {
-          id: locationId,
-          name: 'Unknown',
-          canDelete: false,
-          dependencies: [],
-          error: 'Location not found'
-        };
-      }
+    const locations = rows.map(mapLocationRow);
+    
+    // Generate HTML with QR codes for printing with specified size
+    const html = generateQRCodeHTML(locations, qrSize);
+    
+    const filename = locationIdsParam ? 
+      `location-qr-codes-selected-${qrSize}-${new Date().toISOString().split('T')[0]}.html` :
+      `location-qr-codes-${qrSize}-${new Date().toISOString().split('T')[0]}.html`;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(html);
 
-      const dependencies = [];
-
-      // Check components
-      const componentsStmt = db.prepare('SELECT COUNT(*) as count, GROUP_CONCAT(name, ", ") as names FROM components WHERE location_id = ?');
-      const componentResult = componentsStmt.get(locationId) as { count: number; names: string };
-      
-      if (componentResult.count > 0) {
-        dependencies.push({
-          type: 'components',
-          count: componentResult.count,
-          items: componentResult.names?.split(', ').slice(0, 5) || [] // Limit to first 5 for display
-        });
-      }
-
-      // Check child locations
-      const childrenStmt = db.prepare('SELECT COUNT(*) as count, GROUP_CONCAT(name, ", ") as names FROM storage_locations WHERE parent_id = ?');
-      const childResult = childrenStmt.get(locationId) as { count: number; names: string };
-      
-      if (childResult.count > 0) {
-        dependencies.push({
-          type: 'child_locations',
-          count: childResult.count,
-          items: childResult.names?.split(', ').slice(0, 5) || []
-        });
-      }
-
-      return {
-        id: locationId,
-        name: location.name,
-        canDelete: dependencies.length === 0,
-        dependencies
-      };
-    });
-
-    res.json(results);
   } catch (error) {
-    console.error('Error checking location dependencies:', error);
-    res.status(500).json({ error: 'Failed to check dependencies' });
+    console.error('Error generating QR codes PDF:', error);
+    res.status(500).json({ error: 'Failed to generate QR codes PDF' });
   }
 });
 

@@ -31,7 +31,7 @@ const SUBCATEGORIES: Record<string, string[]> = {
   'Connectors': ['Headers', 'Jumper Wires', 'USB', 'Audio', 'Power']
 };
 
-const PROTOCOLS = ['I2C', 'SPI', 'UART', 'PWM', 'Analog', 'Digital', 'CAN', 'Ethernet', 'WiFi', 'Bluetooth'];
+// const PROTOCOLS = ['I2C', 'SPI', 'UART', 'PWM', 'Analog', 'Digital', 'CAN', 'Ethernet', 'WiFi', 'Bluetooth'];
 
 export function ComponentForm({ component, onSave, onCancel, onDelete }: ComponentFormProps) {
   const [formData, setFormData] = useState({
@@ -52,15 +52,15 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
     status: 'available' as Component['status'],
     datasheetUrl: '',
     notes: '',
-    voltage: { min: 0, max: 0, nominal: 0, unit: 'V' as const },
-    current: { value: 0, unit: 'mA' as const },
+    voltage: { min: 0, max: 0, nominal: 0, unit: 'V' as const } as Component['voltage'],
+    current: { value: 0, unit: 'mA' as const } as Component['current'],
     pinCount: 0,
     protocols: [] as string[],
     packageType: ''
   });
 
   const [locations, setLocations] = useState<StorageLocation[]>([]);
-  const [newTag, setNewTag] = useState('');
+  // const [newTag, setNewTag] = useState('');
 
   useEffect(() => {
     if (component) {
@@ -82,8 +82,8 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
         status: component.status || 'available',
         datasheetUrl: component.datasheetUrl || '',
         notes: component.notes || '',
-        voltage: component.voltage || { min: 0, max: 0, nominal: 0, unit: 'V' },
-        current: component.current || { value: 0, unit: 'mA' },
+        voltage: component.voltage || { min: 0, max: 0, nominal: 0, unit: 'V' as const } as Component['voltage'],
+        current: component.current || { value: 0, unit: 'mA' as const } as Component['current'],
         pinCount: component.pinCount || 0,
         protocols: component.protocols || [],
         packageType: component.packageType || ''
@@ -120,8 +120,9 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
       const submitData = {
         ...formData,
         totalCost: formData.unitCost * formData.quantity,
-        voltage: formData.voltage.min || formData.voltage.max ? formData.voltage : undefined,
-        current: formData.current.value > 0 ? formData.current : undefined
+        voltage: formData.voltage?.min || formData.voltage?.max ? formData.voltage : undefined,
+        current: formData.current?.value && formData.current.value > 0 ? formData.current : undefined,
+        locationId: formData.locationId || undefined
       };
 
       const url = component 
@@ -130,38 +131,45 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
       
       const method = component ? 'PUT' : 'POST';
       
-      await fetch(url, {
+      const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(submitData)
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save component');
+      }
+
       onSave();
     } catch (error) {
       console.error('Error saving component:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error occurred';
+      alert(`Error saving component:\n\n${message}`);
     }
   };
 
-  const addTag = () => {
-    if (newTag && !formData.tags.includes(newTag)) {
-      setFormData({ ...formData, tags: [...formData.tags, newTag] });
-      setNewTag('');
-    }
-  };
+  // const addTag = () => {
+  //   if (newTag && !formData.tags.includes(newTag)) {
+  //     setFormData({ ...formData, tags: [...formData.tags, newTag] });
+  //     setNewTag('');
+  //   }
+  // };
 
-  const removeTag = (tagToRemove: string) => {
-    setFormData({ 
-      ...formData, 
-      tags: formData.tags.filter(tag => tag !== tagToRemove) 
-    });
-  };
+  // const removeTag = (tagToRemove: string) => {
+  //   setFormData({ 
+  //     ...formData, 
+  //     tags: formData.tags.filter(tag => tag !== tagToRemove) 
+  //   });
+  // };
 
-  const toggleProtocol = (protocol: string) => {
-    const protocols = formData.protocols.includes(protocol)
-      ? formData.protocols.filter(p => p !== protocol)
-      : [...formData.protocols, protocol];
-    setFormData({ ...formData, protocols });
-  };
+  // const toggleProtocol = (protocol: string) => {
+  //   const protocols = formData.protocols.includes(protocol)
+  //     ? formData.protocols.filter(p => p !== protocol)
+  //     : [...formData.protocols, protocol];
+  //   setFormData({ ...formData, protocols });
+  // };
 
   const handleDelete = async () => {
     if (!component || !onDelete) return;
@@ -263,6 +271,40 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={2}
             />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Storage Location</label>
+              <select
+                className="form-select"
+                value={formData.locationId}
+                onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
+              >
+                <option value="">No Location Selected</option>
+                {locations.map(location => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+              </select>
+              <small className="form-help">Choose where this component is stored</small>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Status</label>
+              <select
+                className="form-select"
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as Component['status'] })}
+              >
+                <option value="available">Available</option>
+                <option value="in_use">In Use</option>
+                <option value="reserved">Reserved</option>
+                <option value="needs_testing">Needs Testing</option>
+                <option value="defective">Defective</option>
+              </select>
+            </div>
           </div>
 
           <div className="form-row">

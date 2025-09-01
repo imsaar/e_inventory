@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Plus, Filter, Grid, List, Package, Trash2, Square, CheckSquare } from 'lucide-react';
+import { Search, Plus, Filter, Grid, List, Package, Trash2, Square } from 'lucide-react';
 import { Component, SearchFilters } from '../types';
 import { ComponentCard } from '../components/ComponentCard';
 import { ComponentForm } from '../components/ComponentForm';

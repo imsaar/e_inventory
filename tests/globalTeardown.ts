@@ -10,13 +10,29 @@ module.exports = async function globalTeardown() {
     try {
       const files = fs.readdirSync(testDataDir);
       files.forEach(file => {
-        const filePath = path.join(testDataDir, file);
-        fs.unlinkSync(filePath);
+        if (file.startsWith('test-inventory-') || file === 'test-inventory.db') {
+          const filePath = path.join(testDataDir, file);
+          try {
+            fs.unlinkSync(filePath);
+          } catch (error) {
+            console.warn(`Could not delete ${file}:`, error.message);
+          }
+        }
       });
-      fs.rmdirSync(testDataDir);
+      
+      // Only remove directory if it's empty
+      try {
+        const remainingFiles = fs.readdirSync(testDataDir);
+        if (remainingFiles.length === 0) {
+          fs.rmdirSync(testDataDir);
+        }
+      } catch (error) {
+        // Directory might not be empty, that's ok
+      }
+      
       console.log('Test database cleaned up');
     } catch (error) {
-      console.warn('Warning: Could not clean up test database:', error);
+      console.warn('Warning: Could not clean up test database:', error.message);
     }
   }
   

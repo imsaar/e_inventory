@@ -3,6 +3,7 @@ import { Plus, Folder, Calendar, Trash2, Square, CheckSquare } from 'lucide-reac
 import { Project } from '../types';
 import { ProjectForm } from '../components/ProjectForm';
 import { BulkDeleteDialog } from '../components/BulkDeleteDialog';
+import { LinkifiedText } from '../utils/linkify';
 
 export function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -201,7 +202,9 @@ export function Projects() {
               </div>
 
             {project.description && (
-              <p className="project-description">{project.description}</p>
+              <p className="project-description">
+                <LinkifiedText>{project.description}</LinkifiedText>
+              </p>
             )}
 
             <div className="project-meta">
