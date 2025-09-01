@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Components } from './pages/Components';
 import { Locations } from './pages/Locations';
 import { Projects } from './pages/Projects';
+import { QRPrinting } from './pages/QRPrinting';
 import './App.css';
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/components" element={<Components />} />
             <Route path="/locations" element={<Locations />} />
+            <Route path="/locations/qr-printing" element={<QRPrinting />} />
             <Route path="/projects" element={<Projects />} />
           </Routes>
         </main>

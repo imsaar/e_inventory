@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, MapPin, Package, QrCode, Trash2, Square, CheckSquare, FileText, Eye } from 'lucide-react';
+import { Plus, MapPin, Package, QrCode, Trash2, Square, CheckSquare, Eye } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { StorageLocation, Component } from '../types';
 import { LocationForm } from '../components/LocationForm';
 import { BulkDeleteDialog } from '../components/BulkDeleteDialog';
@@ -21,9 +22,6 @@ export function Locations() {
   const [showComponents, setShowComponents] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<StorageLocation | null>(null);
   const [locationComponents, setLocationComponents] = useState<Component[]>([]);
-  const [qrCodeSize, setQrCodeSize] = useState<'small' | 'medium' | 'large'>('medium');
-  const [showQRDialog, setShowQRDialog] = useState(false);
-  const [selectedQRLocations, setSelectedQRLocations] = useState<Set<string>>(new Set());
   const [showDetailView, setShowDetailView] = useState(false);
   const [detailLocationId, setDetailLocationId] = useState<string | null>(null);
 
@@ -157,98 +155,9 @@ export function Locations() {
     }
   };
 
-  const handleShowQRDialog = () => {
-    // Get locations with QR codes
-    const locationsWithQR = getAllLocationsFlat().filter(loc => loc.qrCode);
-    if (locationsWithQR.length === 0) {
-      alert('No locations with QR codes found. Create locations with QR codes first.');
-      return;
-    }
-    setSelectedQRLocations(new Set(locationsWithQR.map(loc => loc.id)));
-    setShowQRDialog(true);
-  };
 
-  const handleDownloadQRCodesPDF = async (selectedLocationIds?: string[]) => {
-    try {
-      let url = `/api/locations/qr-codes/pdf?size=${qrCodeSize}`;
-      
-      if (selectedLocationIds && selectedLocationIds.length > 0) {
-        url += `&locationIds=${selectedLocationIds.join(',')}`;
-      }
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate QR codes');
-      }
-      
-      // Open the HTML page in a new window for printing
-      const htmlContent = await response.text();
-      const newWindow = window.open('', '_blank');
-      if (newWindow) {
-        newWindow.document.write(htmlContent);
-        newWindow.document.close();
-        
-        // Focus on the new window and suggest printing
-        newWindow.focus();
-        setTimeout(() => {
-          if (confirm('QR codes page opened in new window. Would you like to print it now?')) {
-            newWindow.print();
-          }
-        }, 1000);
-      } else {
-        throw new Error('Could not open new window. Please check your popup blocker settings.');
-      }
-      
-    } catch (error) {
-      console.error('Error generating QR codes:', error);
-      const message = error instanceof Error ? error.message : 'Unknown error occurred';
-      alert(`Error generating QR codes:\n\n${message}`);
-    }
-  };
 
-  const getAllLocationsFlat = (): StorageLocation[] => {
-    const flatLocations: StorageLocation[] = [];
-    const collectLocations = (locs: LocationWithChildren[]) => {
-      locs.forEach(loc => {
-        flatLocations.push(loc);
-        if (loc.children) {
-          collectLocations(loc.children);
-        }
-      });
-    };
-    collectLocations(locations);
-    return flatLocations;
-  };
 
-  const toggleQRLocationSelection = (locationId: string) => {
-    const newSelected = new Set(selectedQRLocations);
-    if (newSelected.has(locationId)) {
-      newSelected.delete(locationId);
-    } else {
-      newSelected.add(locationId);
-    }
-    setSelectedQRLocations(newSelected);
-  };
-
-  const selectAllQRLocations = () => {
-    const locationsWithQR = getAllLocationsFlat().filter(loc => loc.qrCode);
-    setSelectedQRLocations(new Set(locationsWithQR.map(loc => loc.id)));
-  };
-
-  const clearQRSelection = () => {
-    setSelectedQRLocations(new Set());
-  };
-
-  const handleQRDialogGenerate = () => {
-    if (selectedQRLocations.size === 0) {
-      alert('Please select at least one location to generate QR codes for.');
-      return;
-    }
-    handleDownloadQRCodesPDF(Array.from(selectedQRLocations));
-    setShowQRDialog(false);
-  };
 
   const renderLocationTree = (location: LocationWithChildren, depth = 0) => {
     const isSelected = selectedLocations.has(location.id);
@@ -334,32 +243,14 @@ export function Locations() {
         <div className="header-actions">
           {locations.length > 0 && (
             <>
-              <div className="qr-size-controls">
-                <label htmlFor="qr-size-select" className="qr-size-label">
-                  QR Size:
-                </label>
-                <select 
-                  id="qr-size-select"
-                  value={qrCodeSize} 
-                  onChange={(e) => setQrCodeSize(e.target.value as 'small' | 'medium' | 'large')}
-                  className="qr-size-select"
-                  disabled={bulkMode}
-                >
-                  <option value="small">Small (6 per row)</option>
-                  <option value="medium">Medium (4 per row)</option>
-                  <option value="large">Large (3 per row)</option>
-                </select>
-              </div>
-              
-              <button 
+              <Link 
+                to="/locations/qr-printing"
                 className="btn btn-secondary"
-                onClick={handleShowQRDialog}
-                disabled={bulkMode}
-                title="Select locations and generate printable QR codes"
+                title="Configure and print QR codes for locations"
               >
-                <FileText size={20} />
+                <QrCode size={20} />
                 Print QR Codes
-              </button>
+              </Link>
               
               <button 
                 className={`btn btn-secondary ${bulkMode ? 'active' : ''}`}
@@ -513,110 +404,6 @@ export function Locations() {
         </div>
       )}
 
-      {showQRDialog && (
-        <div className="modal-overlay">
-          <div className="modal-content qr-selection-modal">
-            <div className="modal-header">
-              <h2>
-                <QrCode size={20} />
-                Generate QR Codes for Locations
-              </h2>
-              <button 
-                onClick={() => setShowQRDialog(false)} 
-                className="btn-icon"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="qr-options">
-                <div className="qr-size-setting">
-                  <label htmlFor="qr-modal-size-select" className="qr-size-label">
-                    QR Code Size:
-                  </label>
-                  <select 
-                    id="qr-modal-size-select"
-                    value={qrCodeSize} 
-                    onChange={(e) => setQrCodeSize(e.target.value as 'small' | 'medium' | 'large')}
-                    className="qr-size-select"
-                  >
-                    <option value="small">Small (6 per row)</option>
-                    <option value="medium">Medium (4 per row)</option>
-                    <option value="large">Large (3 per row)</option>
-                  </select>
-                </div>
-
-                <div className="qr-selection-controls">
-                  <span className="selected-count">
-                    {selectedQRLocations.size} locations selected
-                  </span>
-                  <div className="qr-selection-actions">
-                    <button 
-                      className="btn btn-small btn-secondary"
-                      onClick={selectAllQRLocations}
-                    >
-                      Select All
-                    </button>
-                    <button 
-                      className="btn btn-small btn-secondary"
-                      onClick={clearQRSelection}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="qr-locations-list">
-                {getAllLocationsFlat()
-                  .filter(location => location.qrCode)
-                  .map(location => {
-                    const isSelected = selectedQRLocations.has(location.id);
-                    return (
-                      <div key={location.id} className={`qr-location-item ${isSelected ? 'selected' : ''}`}>
-                        <div className="selection-checkbox">
-                          <button
-                            onClick={() => toggleQRLocationSelection(location.id)}
-                            className={`checkbox-btn ${isSelected ? 'checked' : ''}`}
-                          >
-                            {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
-                          </button>
-                        </div>
-                        <div className="qr-location-info">
-                          <MapPin size={16} />
-                          <span className="location-name">{location.name}</span>
-                          <span className="location-type">{location.type}</span>
-                          <div className="qr-code">
-                            <QrCode size={14} />
-                            {location.qrCode}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button 
-                className="btn btn-secondary"
-                onClick={() => setShowQRDialog(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn btn-primary"
-                onClick={handleQRDialogGenerate}
-                disabled={selectedQRLocations.size === 0}
-              >
-                <FileText size={16} />
-                Generate QR Codes ({selectedQRLocations.size})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showDetailView && detailLocationId && (
         <LocationDetailView

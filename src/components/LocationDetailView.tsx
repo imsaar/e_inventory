@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Edit, Trash2, MapPin, Package, Calendar, Tag, QrCode, Clipboard } from 'lucide-react';
+import { X, Edit, Trash2, MapPin, Package, Calendar, Tag, QrCode, Clipboard, Image as ImageIcon, Eye, Archive, Home, Building, FolderOpen, Box, Layers } from 'lucide-react';
 import { StorageLocation, Component } from '../types';
+import { LinkifiedText } from '../utils/linkify';
 
 interface LocationDetailViewProps {
   locationId: string;
@@ -92,13 +93,44 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
 
   const getTypeIcon = (type: string) => {
     switch (type) {
+      case 'room': return <Home size={20} className="type-icon" />;
+      case 'cabinet': return <Archive size={20} className="type-icon" />;
+      case 'shelf': return <Layers size={20} className="type-icon" />;
+      case 'drawer': return <FolderOpen size={20} className="type-icon" />;
+      case 'box': return <Box size={20} className="type-icon" />;
+      case 'bin': return <Package size={20} className="type-icon" />;
+      default: return <Building size={20} className="type-icon" />;
+    }
+  };
+
+  const getTypeEmoji = (type: string) => {
+    switch (type) {
       case 'room': return '🏠';
       case 'cabinet': return '🗄️';
       case 'shelf': return '📚';
       case 'drawer': return '📦';
       case 'box': return '📦';
-      case 'compartment': return '📋';
+      case 'bin': return '🗂️';
       default: return '📍';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getQRSizeDisplay = (size: string) => {
+    switch (size) {
+      case 'small': return { label: 'Small', description: 'Good for small containers' };
+      case 'medium': return { label: 'Medium', description: 'Default size for most locations' };
+      case 'large': return { label: 'Large', description: 'Good for main areas and walls' };
+      default: return { label: 'Medium', description: 'Default size for most locations' };
     }
   };
 
@@ -148,8 +180,14 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
       <div className="modal-content large">
         <div className="modal-header">
           <div className="location-title">
-            <span className="location-icon">{getTypeIcon(location.type)}</span>
-            <h2>{location.name}</h2>
+            <div className="location-icon-wrapper">
+              {getTypeIcon(location.type)}
+              <span className="location-emoji">{getTypeEmoji(location.type)}</span>
+            </div>
+            <div className="title-info">
+              <h2>{location.name}</h2>
+              <span className="location-type-label">{location.type.charAt(0).toUpperCase() + location.type.slice(1)}</span>
+            </div>
           </div>
           <div className="header-actions">
             <button 
@@ -181,27 +219,32 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
                   {parentPath.map((parent, index) => (
                     <span key={parent.id}>
                       <span className="breadcrumb-item">
-                        {getTypeIcon(parent.type)} {parent.name}
+                        <span className="breadcrumb-icon">{getTypeEmoji(parent.type)}</span>
+                        {parent.name}
                       </span>
                       {index < parentPath.length - 1 && <span className="breadcrumb-separator"> → </span>}
                     </span>
                   ))}
                   <span className="breadcrumb-separator"> → </span>
                   <span className="breadcrumb-current">
-                    {getTypeIcon(location.type)} {location.name}
+                    <span className="breadcrumb-icon">{getTypeEmoji(location.type)}</span>
+                    {location.name}
                   </span>
                 </div>
               </div>
             )}
 
             <div className="detail-section">
-              <h3><Package size={20} /> Basic Information</h3>
+              <h3><Archive size={20} /> Basic Information</h3>
               <div className="detail-grid">
                 <div className="detail-item">
                   <label>Type</label>
                   <div className="detail-value">
-                    <span className="location-type">
-                      {getTypeIcon(location.type)} {location.type.charAt(0).toUpperCase() + location.type.slice(1)}
+                    <span className="location-type-badge">
+                      {getTypeIcon(location.type)}
+                      <span className="type-text">
+                        {location.type.charAt(0).toUpperCase() + location.type.slice(1)}
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -210,8 +253,9 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
                   <label>QR Code</label>
                   <div className="detail-value">
                     {location.qrCode ? (
-                      <span>
-                        {location.qrCode}
+                      <div className="qr-code-display">
+                        <QrCode size={16} />
+                        <span className="qr-code-text">{location.qrCode}</span>
                         <button 
                           className="copy-btn"
                           onClick={() => copyToClipboard(location.qrCode!, 'QR Code')}
@@ -219,18 +263,22 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
                         >
                           <Clipboard size={14} />
                         </button>
-                      </span>
+                      </div>
                     ) : (
-                      <span className="text-muted">Not assigned</span>
+                      <span className="text-muted">
+                        <QrCode size={16} className="muted-icon" />
+                        Not assigned
+                      </span>
                     )}
                   </div>
                 </div>
 
                 <div className="detail-item">
-                  <label>QR Size</label>
+                  <label>QR Print Size</label>
                   <div className="detail-value">
                     <span className="qr-size-indicator">
-                      {(location.qrSize || 'medium').charAt(0).toUpperCase() + (location.qrSize || 'medium').slice(1)}
+                      <span className="size-label">{getQRSizeDisplay(location.qrSize || 'medium').label}</span>
+                      <span className="size-description">{getQRSizeDisplay(location.qrSize || 'medium').description}</span>
                     </span>
                   </div>
                 </div>
@@ -238,16 +286,22 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
                 <div className="detail-item">
                   <label>Components</label>
                   <div className="detail-value">
-                    <span className="component-count">
-                      {getTotalComponents()} types ({getTotalQuantity()} total)
+                    <span className="stat-display">
+                      <Package size={16} />
+                      <span className="stat-text">
+                        {getTotalComponents()} types ({getTotalQuantity()} total items)
+                      </span>
                     </span>
                   </div>
                 </div>
 
                 <div className="detail-item">
-                  <label>Child Locations</label>
+                  <label>Sub-locations</label>
                   <div className="detail-value">
-                    <span className="children-count">{children.length}</span>
+                    <span className="stat-display">
+                      <FolderOpen size={16} />
+                      <span className="stat-text">{children.length} child locations</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -255,45 +309,59 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
 
             {location.description && (
               <div className="detail-section">
-                <h3>Description</h3>
+                <h3><Eye size={20} /> Description</h3>
                 <div className="description-content">
-                  {location.description}
+                  <LinkifiedText>{location.description}</LinkifiedText>
                 </div>
               </div>
             )}
 
             {location.photoUrl && (
               <div className="detail-section">
-                <h3>Photo</h3>
+                <h3><ImageIcon size={20} /> Location Photo</h3>
                 <div className="location-photo">
-                  <img 
-                    src={location.photoUrl} 
-                    alt={`Photo of ${location.name}`}
-                    className="detail-photo"
-                    onError={(e) => {
-                      const img = e.target as HTMLImageElement;
-                      img.style.display = 'none';
-                    }}
-                  />
+                  <div className="photo-container">
+                    <img 
+                      src={location.photoUrl} 
+                      alt={`Photo of ${location.name}`}
+                      className="detail-photo"
+                      onError={(e) => {
+                        const img = e.target as HTMLImageElement;
+                        img.style.display = 'none';
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             )}
 
             {children.length > 0 && (
               <div className="detail-section">
-                <h3>Child Locations</h3>
+                <h3><FolderOpen size={20} /> Child Locations</h3>
                 <div className="children-list">
                   {children.map((child) => (
                     <div key={child.id} className="child-location">
-                      <div className="child-info">
-                        <span className="child-icon">{getTypeIcon(child.type)}</span>
-                        <span className="child-name">{child.name}</span>
-                        <span className="child-type">({child.type})</span>
-                        <span className="child-qr-size">QR: {child.qrSize || 'medium'}</span>
+                      <div className="child-header">
+                        <div className="child-info">
+                          <span className="child-icon">{getTypeEmoji(child.type)}</span>
+                          <span className="child-name">{child.name}</span>
+                          <span className="child-type">({child.type})</span>
+                        </div>
+                        <div className="child-meta">
+                          {child.qrCode && (
+                            <span className="child-qr">
+                              <QrCode size={12} />
+                              {child.qrCode}
+                            </span>
+                          )}
+                          <span className="child-qr-size">
+                            Size: {getQRSizeDisplay(child.qrSize || 'medium').label}
+                          </span>
+                        </div>
                       </div>
                       {child.description && (
                         <div className="child-description">
-                          {child.description}
+                          <LinkifiedText>{child.description}</LinkifiedText>
                         </div>
                       )}
                     </div>
@@ -304,22 +372,42 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
 
             {components.length > 0 && (
               <div className="detail-section">
-                <h3>Components in this Location</h3>
+                <h3><Package size={20} /> Components in this Location</h3>
                 <div className="components-list">
                   {components.map((component) => (
                     <div key={component.id} className="component-summary">
                       <div className="component-main">
-                        <div className="component-name">{component.name}</div>
+                        <div className="component-header">
+                          <div className="component-name">{component.name}</div>
+                          {component.unitCost && (
+                            <div className="component-cost">
+                              ${component.unitCost.toFixed(2)} each
+                            </div>
+                          )}
+                        </div>
                         <div className="component-details">
                           {component.partNumber && (
-                            <span className="part-number">PN: {component.partNumber}</span>
+                            <span className="part-number">
+                              <Package size={12} />
+                              {component.partNumber}
+                            </span>
                           )}
-                          <span className="category">{component.category}</span>
-                          {component.subcategory && <span className="subcategory">({component.subcategory})</span>}
+                          <span className="category">
+                            {component.category}
+                            {component.subcategory && <span className="subcategory">/ {component.subcategory}</span>}
+                          </span>
+                          {component.manufacturer && (
+                            <span className="manufacturer">{component.manufacturer}</span>
+                          )}
                         </div>
                       </div>
-                      <div className="component-quantity">
-                        <span className="quantity-badge">Qty: {component.quantity}</span>
+                      <div className="component-metrics">
+                        <span className={`quantity-badge ${component.quantity <= (component.minThreshold || 0) && component.minThreshold ? 'low-stock' : ''}`}>
+                          {component.quantity} in stock
+                          {component.minThreshold && component.quantity <= component.minThreshold && (
+                            <span className="low-stock-warning">⚠️ Low</span>
+                          )}
+                        </span>
                         <span className={`status-badge status-${component.status}`}>
                           {component.status.replace('_', ' ')}
                         </span>
@@ -347,13 +435,17 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
                 <div className="detail-item">
                   <label>Created</label>
                   <div className="detail-value">
-                    {location.createdAt ? new Date(location.createdAt).toLocaleString() : 'N/A'}
+                    <span className="timestamp">
+                      {location.createdAt ? formatDate(location.createdAt) : 'N/A'}
+                    </span>
                   </div>
                 </div>
                 <div className="detail-item">
                   <label>Last Updated</label>
                   <div className="detail-value">
-                    {location.updatedAt ? new Date(location.updatedAt).toLocaleString() : 'N/A'}
+                    <span className="timestamp">
+                      {location.updatedAt ? formatDate(location.updatedAt) : 'N/A'}
+                    </span>
                   </div>
                 </div>
               </div>
