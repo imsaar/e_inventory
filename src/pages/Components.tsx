@@ -14,7 +14,7 @@ export function Components() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingComponent, setEditingComponent] = useState<Component | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState<SearchFilters>({});
@@ -188,10 +188,10 @@ export function Components() {
     
     if (results.summary) {
       const { deleted, failed } = results.summary;
-      let message = `Bulk delete completed.\n`;
-      if (deleted > 0) message += `✓ ${deleted} components deleted successfully\n`;
-      if (failed > 0) message += `⚠ ${failed} components could not be deleted due to dependencies`;
-      alert(message);
+      let message = `Bulk delete completed.`;
+      if (deleted > 0) message += ` ✓ ${deleted} components deleted successfully.`;
+      if (failed > 0) message += ` ⚠ ${failed} components could not be deleted due to dependencies.`;
+      console.log(message);
     }
   };
 

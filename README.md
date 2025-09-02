@@ -48,6 +48,10 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ## Recent Enhancements
 
+📦 **Complete Data Backup System (September 2025)** - Full system export/import functionality that creates comprehensive backups including database and all uploaded files in a single zip archive. Features automatic backup creation before imports, metadata tracking, intelligent compression, and separated UI controls for database-only vs full system operations.
+
+🎨 **UI/UX Refinements (September 2025)** - List view now default for components page, reduced grid view image sizes for better content balance, added thumbnails to list view, removed disruptive alert popups from bulk operations, and improved dashboard reliability with better error handling.
+
 🚀 **AliExpress Import System (September 2025)** - Complete HTML-based order import functionality with intelligent component recognition, automatic categorization, cost tracking, and comprehensive import history. Features advanced MHTML parsing with embedded image extraction, smart URL mapping for local image storage, and component thumbnail display in both grid and list views. Supports AliExpress order page parsing with smart component tagging and real-time progress tracking.
 
 🔓 **Authentication Removal (September 2025)** - Streamlined system for development and testing by removing authentication requirements from all endpoints. All API routes are now publicly accessible while maintaining core security features like rate limiting and input validation.
@@ -161,8 +165,10 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ### Database Management
 - `GET /api/database/info` - Get database information and statistics
-- `GET /api/database/export` - Export database backup
-- `POST /api/database/import` - Import database from backup file
+- `GET /api/database/export` - Export database backup (.db file)
+- `POST /api/database/import` - Import database from backup file (.db)
+- `GET /api/database/export-all` - Export complete backup (database + uploads as .zip)
+- `POST /api/database/import-all` - Import complete backup from .zip file
 
 ### File Uploads
 - `POST /api/uploads/photo` - Upload component/location photos (multipart/form-data)

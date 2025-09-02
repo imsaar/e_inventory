@@ -28,6 +28,8 @@ export function Dashboard() {
   const [dbInfo, setDbInfo] = useState<any>(null);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importingFull, setImportingFull] = useState(false);
+  const [exportingFull, setExportingFull] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
@@ -35,13 +37,14 @@ export function Dashboard() {
 
   const loadDashboardData = async () => {
     try {
+      // Fetch all data concurrently, but handle database info separately to ensure it loads even if others fail
       const [componentsRes, locationsRes, projectsRes, ordersRes, lowStockRes, dbInfoRes] = await Promise.all([
-        fetch('/api/components'),
-        fetch('/api/locations'),
-        fetch('/api/projects'),
-        fetch('/api/orders'),
-        fetch('/api/components/alerts/low-stock'),
-        fetch('/api/database/info')
+        fetch('/api/components').catch(e => ({ ok: false, json: async () => [] })),
+        fetch('/api/locations').catch(e => ({ ok: false, json: async () => [] })),
+        fetch('/api/projects').catch(e => ({ ok: false, json: async () => [] })),
+        fetch('/api/orders').catch(e => ({ ok: false, json: async () => [] })),
+        fetch('/api/components/alerts/low-stock').catch(e => ({ ok: false, json: async () => [] })),
+        fetch('/api/database/info').catch(e => ({ ok: false, json: async () => null }))
       ]);
 
       const components = await componentsRes.json();
@@ -51,26 +54,26 @@ export function Dashboard() {
       const lowStock = await lowStockRes.json();
       const dbInfo = await dbInfoRes.json();
 
-      const totalValue = components.reduce((sum: number, comp: Component) => 
+      const totalValue = Array.isArray(components) ? components.reduce((sum: number, comp: Component) => 
         sum + (comp.totalCost || 0), 0
-      );
+      ) : 0;
 
-      const totalOrderValue = orders.reduce((sum: number, order: any) => 
+      const totalOrderValue = Array.isArray(orders) ? orders.reduce((sum: number, order: any) => 
         sum + (order.totalAmount || order.calculatedTotal || 0), 0
-      );
+      ) : 0;
 
       setStats({
-        totalComponents: components.length,
+        totalComponents: Array.isArray(components) ? components.length : 0,
         totalLocations: Array.isArray(locations) ? locations.length : 0,
-        totalProjects: projects.length,
-        totalOrders: orders.length,
-        lowStockCount: lowStock.length,
+        totalProjects: Array.isArray(projects) ? projects.length : 0,
+        totalOrders: Array.isArray(orders) ? orders.length : 0,
+        lowStockCount: Array.isArray(lowStock) ? lowStock.length : 0,
         totalValue,
         totalOrderValue
       });
 
-      setLowStockComponents(lowStock.slice(0, 5));
-      setRecentOrders(orders.slice(0, 5)); // Show 5 most recent orders
+      setLowStockComponents(Array.isArray(lowStock) ? lowStock.slice(0, 5) : []);
+      setRecentOrders(Array.isArray(orders) ? orders.slice(0, 5) : []); // Show 5 most recent orders
       setDbInfo(dbInfo);
       setLoading(false);
     } catch (error) {
@@ -85,6 +88,15 @@ export function Dashboard() {
         totalValue: 0,
         totalOrderValue: 0
       });
+      // Try to load database info separately
+      try {
+        const dbInfoRes = await fetch('/api/database/info');
+        const dbInfo = await dbInfoRes.json();
+        setDbInfo(dbInfo);
+      } catch (dbError) {
+        console.error('Failed to load database info:', dbError);
+        setDbInfo(null);
+      }
       setLoading(false);
     }
   };
@@ -156,6 +168,78 @@ export function Dashboard() {
       alert('Failed to import database. Please check the file and try again.');
     } finally {
       setImporting(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
+  const handleExportAllData = async () => {
+    try {
+      setExportingFull(true);
+      const response = await fetch('/api/database/export-all');
+      
+      if (!response.ok) {
+        throw new Error('Failed to export full backup');
+      }
+      
+      // Create download link
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'inventory-full-backup.zip';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      console.log('Full backup exported successfully!');
+    } catch (error) {
+      console.error('Error exporting full backup:', error);
+      alert('Failed to export full backup. Please try again.');
+    } finally {
+      setExportingFull(false);
+    }
+  };
+
+  const handleImportAllData = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.name.endsWith('.zip')) {
+      alert('Please select a valid backup file (.zip)');
+      return;
+    }
+    
+    if (!confirm('Importing a full backup will replace all current data including images and files. This action cannot be undone. Continue?')) {
+      return;
+    }
+    
+    try {
+      setImportingFull(true);
+      
+      const formData = new FormData();
+      formData.append('backup', file);
+      
+      const response = await fetch('/api/database/import-all', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to import full backup');
+      }
+      
+      alert('Full backup imported successfully! The application will restart to load all data.');
+      // The server will restart automatically after import
+      
+    } catch (error) {
+      console.error('Error importing full backup:', error);
+      alert('Failed to import full backup. Please check the file and try again.');
+    } finally {
+      setImportingFull(false);
       // Reset file input
       event.target.value = '';
     }
@@ -410,6 +494,41 @@ export function Dashboard() {
               />
               <div className="sidebar-note">
                 Select a .db file to replace current database
+              </div>
+              
+              <hr style={{ margin: 'var(--spacing-md) 0', border: 'none', borderTop: '1px solid #e5e7eb' }} />
+              
+              <div className="sidebar-section-title">Full Backup (Database + Images)</div>
+              
+              <button 
+                className="btn btn-secondary btn-full-width"
+                onClick={handleExportAllData}
+                disabled={exportingFull}
+                title="Export complete backup including database and all uploaded files"
+              >
+                <Download size={16} />
+                {exportingFull ? 'Creating Backup...' : 'Export All Data'}
+              </button>
+              
+              <label 
+                htmlFor="full-backup-import" 
+                className="btn btn-primary btn-full-width" 
+                style={{cursor: importingFull ? 'not-allowed' : 'pointer'}}
+                title="Import complete backup including database and all uploaded files"
+              >
+                <Upload size={16} />
+                {importingFull ? 'Restoring...' : 'Import All Data'}
+              </label>
+              <input
+                id="full-backup-import"
+                type="file"
+                accept=".zip"
+                onChange={handleImportAllData}
+                style={{ display: 'none' }}
+                disabled={importingFull}
+              />
+              <div className="sidebar-note">
+                Select a .zip file to restore complete backup (includes images)
               </div>
             </div>
           </div>

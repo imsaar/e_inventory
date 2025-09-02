@@ -193,16 +193,16 @@ export function Orders() {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        alert(`Successfully deleted ${result.results.deleted} order(s)${result.results.errors.length > 0 ? `. Errors: ${result.results.errors.join(', ')}` : ''}`);
+        console.log(`Successfully deleted ${result.results.deleted} order(s)${result.results.errors.length > 0 ? `. Errors: ${result.results.errors.join(', ')}` : ''}`);
         setSelectedOrders(new Set());
         loadAllOrders();
         searchOrders();
       } else {
-        alert(`Bulk delete failed: ${result.error || result.message || 'Unknown error'}`);
+        console.error(`Bulk delete failed: ${result.error || result.message || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error in bulk delete:', error);
-      alert('Failed to delete orders. Please try again.');
+      console.error('Failed to delete orders. Please try again.');
     } finally {
       setBulkDeleteLoading(false);
     }

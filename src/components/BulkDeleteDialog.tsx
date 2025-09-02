@@ -46,7 +46,7 @@ export function BulkDeleteDialog({ items, itemType, onCancel, onConfirm }: BulkD
     } catch (error) {
       console.error('Error deleting items:', error);
       const message = error instanceof Error ? error.message : 'Unknown error occurred';
-      alert(`Error deleting ${itemType}:\n\n${message}`);
+      console.error(`Error deleting ${itemType}: ${message}`);
     } finally {
       setLoading(false);
     }

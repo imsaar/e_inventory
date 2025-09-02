@@ -244,6 +244,15 @@ body {
   border-bottom: 2px solid var(--border-color);
 }
 
+.sidebar-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .sidebar-info {
   margin-bottom: var(--spacing-md);
 }
@@ -400,7 +409,7 @@ body {
 
 .component-image {
   width: 100%;
-  max-height: 200px;
+  max-height: 120px;
   overflow: hidden;
   border-radius: var(--radius-sm);
   margin: var(--spacing-sm) 0;
@@ -413,7 +422,7 @@ body {
 .component-image img {
   width: 100%;
   height: auto;
-  max-height: 200px;
+  max-height: 120px;
   object-fit: cover;
   border-radius: var(--radius-sm);
 }
