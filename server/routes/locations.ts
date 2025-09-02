@@ -255,6 +255,15 @@ router.post('/bulk-delete', (req, res) => {
 
     for (const locationId of locationIds) {
       try {
+        // Check if location has components
+        const componentsStmt = db.prepare('SELECT COUNT(*) as count FROM components WHERE location_id = ?');
+        const componentCount = componentsStmt.get(locationId) as { count: number };
+        
+        if (componentCount.count > 0) {
+          failed.push({ id: locationId, error: 'Location has components' });
+          continue;
+        }
+        
         const stmt = db.prepare('DELETE FROM storage_locations WHERE id = ?');
         const result = stmt.run(locationId);
         

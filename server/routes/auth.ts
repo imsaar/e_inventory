@@ -18,17 +18,13 @@ router.use(authLimiter);
 // Public routes
 router.post('/login', strictLimiter, login);
 
-// Protected routes
-router.use(authenticate); // All routes below require authentication
-
+// All routes are now public - authentication removed
 router.get('/me', getCurrentUser);
 router.post('/change-password', changePassword);
+router.post('/register', register);
 
-// Admin-only routes
-router.post('/register', authorize(['admin']), register);
-
-// Get all users (admin only)
-router.get('/users', authorize(['admin']), (req, res) => {
+// Get all users
+router.get('/users', (req, res) => {
   try {
     const users = db.prepare(`
       SELECT id, username, email, role, is_active, last_login, created_at 
@@ -46,17 +42,12 @@ router.get('/users', authorize(['admin']), (req, res) => {
   }
 });
 
-// Deactivate user (admin only)
-router.patch('/users/:id/deactivate', authorize(['admin']), (req, res) => {
+// Deactivate user
+router.patch('/users/:id/deactivate', (req, res) => {
   try {
     const { id } = req.params;
     
-    if (id === req.user!.id) {
-      return res.status(400).json({
-        error: 'Cannot deactivate own account',
-        details: ['You cannot deactivate your own account']
-      });
-    }
+    // Note: Without authentication, cannot check if user is deactivating own account
     
     const result = db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(id);
     
@@ -81,8 +72,8 @@ router.patch('/users/:id/deactivate', authorize(['admin']), (req, res) => {
   }
 });
 
-// Reactivate user (admin only)
-router.patch('/users/:id/activate', authorize(['admin']), (req, res) => {
+// Reactivate user
+router.patch('/users/:id/activate', (req, res) => {
   try {
     const { id } = req.params;
     

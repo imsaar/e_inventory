@@ -11,8 +11,12 @@ module.exports = {
       }
     }]
   },
+  transformIgnorePatterns: [
+    'node_modules/(?!(node-fetch|data-uri-to-buffer|fetch-blob|formdata-polyfill)/)'
+  ],
   moduleNameMapper: {
-    '^../server/(.*)$': '<rootDir>/server/$1'
+    '^../server/(.*)$': '<rootDir>/server/$1',
+    'node-fetch': '<rootDir>/tests/__mocks__/node-fetch.js'
   },
   collectCoverageFrom: [
     'server/**/*.{ts,js}',

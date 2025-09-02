@@ -11,6 +11,7 @@ import authRoutes from './routes/auth';
 import uploadRoutes from './routes/uploads';
 import databaseRoutes from './routes/database';
 import orderRoutes from './routes/orders';
+import importRoutes from './routes/import';
 import { 
   securityHeaders, 
   generalLimiter, 
@@ -58,7 +59,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
   setHeaders: (res, filePath) => {
     // Prevent script execution in uploads directory
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'");
     
     // Only allow known image types
     const allowedTypes = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
@@ -87,6 +88,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/database', databaseRoutes);
+app.use('/api/import', importRoutes);
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
@@ -95,6 +97,34 @@ app.get('/api/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || '1.0.0'
   });
+});
+
+// Handle direct component ID access (for QR codes, etc.)
+app.get(/^\/cmp_[a-zA-Z0-9_]+$/, async (req, res) => {
+  const componentId = req.path.substring(1); // Remove leading slash
+  
+  // Check if component exists
+  try {
+    const db = await import('./database');
+    const component = db.default.prepare('SELECT id FROM components WHERE id = ?').get(componentId);
+    
+    if (component) {
+      // Component exists, redirect to React app with component view
+      res.redirect(`/components?component=${componentId}`);
+    } else {
+      // Component not found
+      res.status(404).json({
+        error: 'Component not found',
+        details: [`Component ${componentId} does not exist`]
+      });
+    }
+  } catch (error) {
+    console.error('Error checking component:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      details: ['Unable to verify component']
+    });
+  }
 });
 
 // Handle 404s

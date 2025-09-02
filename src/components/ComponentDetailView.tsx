@@ -20,6 +20,19 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
     loadComponent();
   }, [componentId]);
 
+  useEffect(() => {
+    const handleEscKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscKey);
+    return () => {
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, [onClose]);
+
   const loadComponent = async () => {
     try {
       setLoading(true);
@@ -173,6 +186,21 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
 
         <div className="component-detail-content">
           <div className="detail-main">
+            {component.imageUrl && (
+              <div className="detail-section">
+                <h3><Package size={20} /> Product Image</h3>
+                <div className="component-detail-image">
+                  <img 
+                    src={`/uploads/${component.imageUrl}`} 
+                    alt={component.name}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="detail-section">
               <h3><Package size={20} /> Basic Information</h3>
               <div className="detail-grid">

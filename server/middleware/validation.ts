@@ -103,7 +103,7 @@ export const schemas = {
       .min(1, 'No locations selected')
       .max(100, 'Too many locations (max 100)')
       .optional(),
-    componentIds: z.array(z.string().regex(/^[a-fA-F0-9]{32}$|^[a-fA-F0-9-]{36}$/, 'Invalid component ID'))
+    componentIds: z.array(z.string().regex(/^[a-fA-F0-9]{32}$|^[a-fA-F0-9-]{36}$|^cmp_[a-zA-Z0-9_]+$/, 'Invalid component ID'))
       .min(1, 'No components selected')
       .max(100, 'Too many components (max 100)')
       .optional(),
@@ -199,7 +199,7 @@ export function validateParams(paramNames: string[]) {
           field: param,
           message: `${param} parameter is required`
         });
-      } else if (!/^[a-fA-F0-9]{32}$|^[a-fA-F0-9-]{36}$/.test(value)) {
+      } else if (!/^[a-fA-F0-9]{32}$|^[a-fA-F0-9-]{36}$|^cmp_[a-zA-Z0-9_]+$/.test(value)) {
         errors.push({
           field: param,
           message: `Invalid ${param} format`
@@ -288,3 +288,68 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000); // Cleanup every 5 minutes
+
+// Import validation schemas
+const importRequestSchema = z.object({
+  orders: z.array(z.object({
+    orderNumber: z.string().min(1).max(50),
+    orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}T/),
+    totalAmount: z.number().min(0),
+    supplier: z.string().min(1).max(100),
+    status: z.string().min(1).max(20),
+    items: z.array(z.object({
+      productTitle: z.string().min(1).max(500),
+      quantity: z.number().int().min(1).max(10000),
+      unitPrice: z.number().min(0),
+      totalPrice: z.number().min(0),
+      imageUrl: z.string().url().optional(),
+      localImagePath: z.string().max(500).optional(),
+      productUrl: z.string().url().optional(),
+      specifications: z.record(z.string(), z.string()).optional(),
+      parsedComponent: z.object({
+        name: z.string(),
+        category: z.string(),
+        subcategory: z.string().optional(),
+        partNumber: z.string().optional(),
+        manufacturer: z.string().optional(),
+        description: z.string().optional(),
+        tags: z.array(z.string()),
+        packageType: z.string().optional(),
+        voltage: z.object({
+          min: z.number().optional(),
+          max: z.number().optional(),
+          nominal: z.number().optional(),
+          unit: z.string()
+        }).optional(),
+        current: z.object({
+          value: z.number(),
+          unit: z.string()
+        }).optional(),
+        resistance: z.object({
+          value: z.number(),
+          unit: z.string(),
+          tolerance: z.string().optional()
+        }).optional(),
+        capacitance: z.object({
+          value: z.number(),
+          unit: z.string(),
+          voltage: z.number().optional()
+        }).optional(),
+        frequency: z.object({
+          value: z.number(),
+          unit: z.string()
+        }).optional(),
+        pinCount: z.number().optional(),
+        protocols: z.array(z.string())
+      }).optional()
+    })).max(1000) // Limit items per order
+  })).max(100), // Limit number of orders per import
+  importOptions: z.object({
+    createComponents: z.boolean().default(true),
+    updateExisting: z.boolean().default(true),
+    allowDuplicates: z.boolean().default(false),
+    matchByTitle: z.boolean().default(true)
+  }).optional()
+});
+
+export const validateImportRequest = validateSchema(importRequestSchema);

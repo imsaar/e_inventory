@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Plus, ShoppingCart, Package, Calendar, DollarSign, Trash2 } from 'lucide-react';
+import { Plus, ShoppingCart, Package, Calendar, DollarSign, Trash2, Upload, CheckSquare, Square, X } from 'lucide-react';
 import { Order } from '../types';
 import { OrderForm } from '../components/OrderForm';
 import { OrderSearch } from '../components/OrderSearch';
 import { OrderDetailView } from '../components/OrderDetailView';
+import { AliExpressImport } from '../components/AliExpressImport';
 
 interface OrderFilters {
   status?: string;
@@ -27,6 +28,9 @@ export function Orders() {
   const [showDetailView, setShowDetailView] = useState(false);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   // Get unique suppliers for filter options
   const suppliers = Array.from(new Set(allOrders.map(o => o.supplier).filter(Boolean) as string[])).sort();
@@ -96,7 +100,8 @@ export function Orders() {
 
     try {
       await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
-      loadOrders();
+      loadAllOrders();
+      searchOrders();
     } catch (error) {
       console.error('Error deleting order:', error);
       alert('Failed to delete order');
@@ -108,6 +113,17 @@ export function Orders() {
     setEditingOrder(null);
     loadAllOrders();
     searchOrders();
+  };
+
+  const handleImportComplete = (results: any) => {
+    setShowImport(false);
+    loadAllOrders();
+    searchOrders();
+    
+    // Show import results notification
+    if (results.imported > 0) {
+      alert(`Successfully imported ${results.imported} orders with ${results.componentIds.length} components!`);
+    }
   };
 
   const handleViewDetails = (orderId: string) => {
@@ -135,6 +151,67 @@ export function Orders() {
     }
   };
 
+  const handleSelectOrder = (orderId: string, selected: boolean) => {
+    const newSelected = new Set(selectedOrders);
+    if (selected) {
+      newSelected.add(orderId);
+    } else {
+      newSelected.delete(orderId);
+    }
+    setSelectedOrders(newSelected);
+  };
+
+  const handleSelectAll = (selected: boolean) => {
+    if (selected) {
+      setSelectedOrders(new Set(orders.map(o => o.id)));
+    } else {
+      setSelectedOrders(new Set());
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedOrders.size === 0) return;
+
+    const confirmMessage = `Are you sure you want to delete ${selectedOrders.size} order(s)? This will also reverse the quantity changes for all items in these orders.`;
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setBulkDeleteLoading(true);
+      
+      const response = await fetch('/api/orders/bulk-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderIds: Array.from(selectedOrders),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        alert(`Successfully deleted ${result.results.deleted} order(s)${result.results.errors.length > 0 ? `. Errors: ${result.results.errors.join(', ')}` : ''}`);
+        setSelectedOrders(new Set());
+        loadAllOrders();
+        searchOrders();
+      } else {
+        alert(`Bulk delete failed: ${result.error || result.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error in bulk delete:', error);
+      alert('Failed to delete orders. Please try again.');
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedOrders(new Set());
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString();
   };
@@ -156,6 +233,13 @@ export function Orders() {
         <h1 className="page-title">Orders ({orders.length})</h1>
         <div className="header-actions">
           <button 
+            className="btn btn-secondary"
+            onClick={() => setShowImport(true)}
+          >
+            <Upload size={20} />
+            Import from AliExpress
+          </button>
+          <button 
             className="btn btn-primary"
             onClick={() => setShowForm(true)}
           >
@@ -173,6 +257,49 @@ export function Orders() {
         suppliers={suppliers}
         loading={searchLoading}
       />
+
+      {/* Bulk Actions Bar */}
+      {selectedOrders.size > 0 && (
+        <div className="bulk-actions-bar">
+          <div className="bulk-info">
+            <span>{selectedOrders.size} order{selectedOrders.size !== 1 ? 's' : ''} selected</span>
+          </div>
+          <div className="bulk-actions">
+            <button 
+              className="btn btn-secondary btn-small"
+              onClick={clearSelection}
+            >
+              <X size={16} />
+              Clear Selection
+            </button>
+            <button 
+              className="btn btn-danger btn-small"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleteLoading}
+            >
+              <Trash2 size={16} />
+              {bulkDeleteLoading ? 'Deleting...' : `Delete ${selectedOrders.size} Order${selectedOrders.size !== 1 ? 's' : ''}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Select All Header */}
+      {orders.length > 0 && (
+        <div className="bulk-select-header">
+          <label className="checkbox-container">
+            <input
+              type="checkbox"
+              checked={orders.length > 0 && selectedOrders.size === orders.length}
+              onChange={(e) => handleSelectAll(e.target.checked)}
+            />
+            <span className="checkmark"></span>
+            <span className="checkbox-label">
+              {selectedOrders.size === orders.length ? 'Deselect All' : `Select All (${orders.length})`}
+            </span>
+          </label>
+        </div>
+      )}
 
       <div className="grid-container">
         {orders.length === 0 ? (
@@ -195,8 +322,19 @@ export function Orders() {
         ) : (
           <div className="orders-grid">
             {orders.map(order => (
-              <div key={order.id} className="order-card">
+              <div key={order.id} className={`order-card ${selectedOrders.has(order.id) ? 'selected' : ''}`}>
                 <div className="order-header">
+                  <div className="order-checkbox">
+                    <label className="checkbox-container">
+                      <input
+                        type="checkbox"
+                        checked={selectedOrders.has(order.id)}
+                        onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <span className="checkmark"></span>
+                    </label>
+                  </div>
                   <div className="order-info">
                     <h3 className="order-number">
                       {order.orderNumber || `Order ${order.id.slice(-8)}`}
@@ -213,7 +351,10 @@ export function Orders() {
                   <div className="order-actions">
                     <button 
                       className="btn-icon btn-danger"
-                      onClick={() => handleDeleteOrder(order.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteOrder(order.id);
+                      }}
                       title="Delete order"
                     >
                       <Trash2 size={16} />
@@ -280,6 +421,13 @@ export function Orders() {
           }}
           onEdit={handleDetailEdit}
           onDelete={handleDetailDelete}
+        />
+      )}
+
+      {showImport && (
+        <AliExpressImport
+          onImportComplete={handleImportComplete}
+          onClose={() => setShowImport(false)}
         />
       )}
     </div>

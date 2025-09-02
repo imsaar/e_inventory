@@ -3,9 +3,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import Database from 'better-sqlite3';
 import { validateSchema } from '../middleware/validation';
+import defaultDb from '../database';
 
 const router = express.Router();
-const db = new Database(process.env.DB_PATH || './data/inventory-dev.db');
+
+// Get database instance - support dependency injection for testing
+function getDb(req: express.Request) {
+  return (req.app.get('db') as any) || defaultDb;
+}
 
 // Validation schemas
 const orderSchema = z.object({
@@ -30,6 +35,10 @@ const orderUpdateSchema = z.object({
   notes: z.string().optional(),
   totalAmount: z.number().optional(),
   status: z.enum(['pending', 'ordered', 'shipped', 'delivered', 'cancelled']).optional()
+});
+
+const bulkDeleteSchema = z.object({
+  orderIds: z.array(z.string()).min(1).max(100) // Limit to 100 orders for safety
 });
 
 // Helper function to map database row to Order object
@@ -59,6 +68,8 @@ const mapOrderItemRow = (row: any) => ({
 // GET /api/orders - List all orders with search/filter support
 router.get('/', (req, res) => {
   try {
+    const db = getDb(req);
+    
     const { 
       term, 
       status, 
@@ -166,6 +177,7 @@ router.get('/', (req, res) => {
 // GET /api/orders/:id - Get specific order with items
 router.get('/:id', (req, res) => {
   try {
+    const db = getDb(req);
     const { id } = req.params;
 
     const order = db.prepare(`
@@ -202,6 +214,7 @@ router.get('/:id', (req, res) => {
 
 // POST /api/orders - Create new order
 router.post('/', validateSchema(orderSchema), (req, res) => {
+  const db = getDb(req);
   const transaction = db.transaction(() => {
     try {
       const { items, ...orderData } = req.body;
@@ -290,6 +303,7 @@ router.post('/', validateSchema(orderSchema), (req, res) => {
 // PUT /api/orders/:id - Update order (not items)
 router.put('/:id', validateSchema(orderUpdateSchema), (req, res) => {
   try {
+    const db = getDb(req);
     const { id } = req.params;
     const updateData = req.body;
 
@@ -333,6 +347,7 @@ router.put('/:id', validateSchema(orderUpdateSchema), (req, res) => {
 
 // DELETE /api/orders/:id - Delete order and items
 router.delete('/:id', (req, res) => {
+  const db = getDb(req);
   const transaction = db.transaction(() => {
     try {
       const { id } = req.params;
@@ -378,6 +393,101 @@ router.delete('/:id', (req, res) => {
     } else {
       res.status(500).json({ error: 'Failed to delete order' });
     }
+  }
+});
+
+// POST /api/orders/bulk-delete - Delete multiple orders
+router.post('/bulk-delete', validateSchema(bulkDeleteSchema), (req, res) => {
+  const db = getDb(req);
+  const transaction = db.transaction(() => {
+    try {
+      const { orderIds } = req.body;
+      const results = {
+        deleted: 0,
+        errors: [] as string[]
+      };
+
+      // First, get all order items for quantity reversal
+      const placeholders = orderIds.map(() => '?').join(',');
+      const allItems = db.prepare(`
+        SELECT oi.order_id, oi.component_id, oi.quantity, o.order_number
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE oi.order_id IN (${placeholders})
+      `).all(...orderIds) as any[];
+
+      // Group items by order for better error handling
+      const itemsByOrder = new Map<string, any[]>();
+      allItems.forEach(item => {
+        if (!itemsByOrder.has(item.order_id)) {
+          itemsByOrder.set(item.order_id, []);
+        }
+        itemsByOrder.get(item.order_id)!.push(item);
+      });
+
+      const updateQuantityStmt = db.prepare(`
+        UPDATE components 
+        SET quantity = quantity - ?, 
+            updated_at = datetime('now')
+        WHERE id = ?
+      `);
+
+      const deleteOrderStmt = db.prepare(`DELETE FROM orders WHERE id = ?`);
+
+      // Process each order
+      for (const orderId of orderIds) {
+        try {
+          const orderItems = itemsByOrder.get(orderId) || [];
+          const orderNumber = orderItems[0]?.order_number || orderId;
+
+          // Reverse component quantities for this order
+          for (const item of orderItems) {
+            updateQuantityStmt.run(item.quantity, item.component_id);
+          }
+
+          // Delete the order (items will be deleted by CASCADE)
+          const result = deleteOrderStmt.run(orderId);
+
+          if (result.changes > 0) {
+            results.deleted++;
+          } else {
+            results.errors.push(`Order ${orderNumber} not found`);
+          }
+        } catch (error: any) {
+          const orderNumber = itemsByOrder.get(orderId)?.[0]?.order_number || orderId;
+          results.errors.push(`Failed to delete order ${orderNumber}: ${error.message}`);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error in bulk delete transaction:', error);
+      throw error;
+    }
+  });
+
+  try {
+    const results = transaction();
+    
+    if (results.deleted === 0 && results.errors.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No orders were deleted',
+        results 
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully deleted ${results.deleted} order(s)`,
+      results
+    });
+  } catch (error: any) {
+    console.error('Bulk delete transaction failed:', error);
+    res.status(500).json({ 
+      error: 'Bulk delete operation failed',
+      details: error.message 
+    });
   }
 });
 

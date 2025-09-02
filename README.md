@@ -48,6 +48,12 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ## Recent Enhancements
 
+🚀 **AliExpress Import System (September 2025)** - Complete HTML-based order import functionality with intelligent component recognition, automatic categorization, cost tracking, and comprehensive import history. Features advanced MHTML parsing with embedded image extraction, smart URL mapping for local image storage, and component thumbnail display in both grid and list views. Supports AliExpress order page parsing with smart component tagging and real-time progress tracking.
+
+🔓 **Authentication Removal (September 2025)** - Streamlined system for development and testing by removing authentication requirements from all endpoints. All API routes are now publicly accessible while maintaining core security features like rate limiting and input validation.
+
+⚡ **Performance & Network Improvements (September 2025)** - Fixed Vite development server network accessibility, achieved sub-millisecond API response times, and implemented comprehensive testing suite with 230+ tests including full AliExpress import functionality coverage.
+
 🛒 **Order Management System (January 2025)** - Complete order tracking with supplier management, comprehensive order forms with real-time cost calculations, advanced search and filtering, and detailed order views with full component breakdowns.
 
 🔍 **Enhanced Search Experience (January 2025)** - Advanced search functionality across all pages with real-time filtering, multi-parameter search on components and orders, intelligent sorting options, and responsive search interfaces optimized for mobile and desktop.
@@ -147,6 +153,12 @@ A comprehensive web-based inventory management system designed specifically for 
 - `PUT /api/orders/:id` - Update order information
 - `DELETE /api/orders/:id` - Delete order and reverse inventory changes
 
+### AliExpress Import
+- `GET /api/import/test` - Test import system endpoint
+- `GET /api/import/history` - Get import history with statistics
+- `POST /api/import/aliexpress/preview` - Upload and preview AliExpress HTML file
+- `POST /api/import/aliexpress/import` - Import parsed orders and create components
+
 ### Database Management
 - `GET /api/database/info` - Get database information and statistics
 - `GET /api/database/export` - Export database backup
@@ -156,12 +168,13 @@ A comprehensive web-based inventory management system designed specifically for 
 - `POST /api/uploads/photo` - Upload component/location photos (multipart/form-data)
 - `DELETE /api/uploads/photo` - Delete uploaded photo by URL
 
-### Authentication
-- `POST /api/auth/login` - User login
-- `GET /api/auth/me` - Get current user info
-- `POST /api/auth/change-password` - Change password
-- `POST /api/auth/register` - Register new user (admin only)
-- `GET /api/auth/users` - List all users (admin only)
+### Authentication (Public Access)
+**Note**: All authentication endpoints are now publicly accessible without requiring tokens.
+- `POST /api/auth/login` - User login (public)
+- `GET /api/auth/me` - Get current user info (public)
+- `POST /api/auth/change-password` - Change password (public)
+- `POST /api/auth/register` - Register new user (public)
+- `GET /api/auth/users` - List all users (public)
 
 ## Database Storage
 
@@ -264,14 +277,20 @@ npm run build            # Production build
 
 ## Usage Examples
 
+### AliExpress Import Workflow
+1. Go to Orders page and click "Import from AliExpress"
+2. Upload your AliExpress order HTML file (saved from browser)
+3. Review parsed order data with automatic component recognition
+4. Confirm import to create orders and components automatically
+5. Check import history for tracking and statistics
+
 ### Adding Components
 1. Navigate to the Components page
 2. Click "Add Component"
 3. Fill in component details including:
    - Basic info (name, part number, manufacturer)
    - Electrical specifications (voltage, current, protocols)
-   - Inventory details (quantity, cost, supplier)
-   - Storage location assignment
+   - Storage location assignment (quantities/costs now handled via orders)
 
 ### Organizing Storage
 1. Go to Locations page

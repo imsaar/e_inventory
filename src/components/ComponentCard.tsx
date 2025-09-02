@@ -39,6 +39,18 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
             </div>
           )}
           
+          {component.imageUrl && (
+            <div className="list-thumbnail">
+              <img 
+                src={`/uploads/${component.imageUrl}`} 
+                alt={component.name}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            </div>
+          )}
+          
           <div className="list-main">
             <div className="component-name">{component.name}</div>
             {component.partNumber && (
@@ -123,6 +135,18 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
           )}
         </div>
       </div>
+
+      {component.imageUrl && (
+        <div className="component-image">
+          <img 
+            src={`/uploads/${component.imageUrl}`} 
+            alt={component.name}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        </div>
+      )}
 
       <div className="component-category">{component.category}</div>
       

@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -187,8 +187,19 @@ export function initializeDatabase() {
       order_date TEXT NOT NULL,
       supplier TEXT,
       order_number TEXT,
+      supplier_order_id TEXT, -- Original order ID from supplier (e.g., AliExpress)
+      tracking_number TEXT,
+      shipping_method TEXT,
+      shipping_cost REAL,
+      tax_amount REAL,
+      discount_amount REAL,
       notes TEXT,
       total_amount REAL,
+      currency TEXT DEFAULT 'USD',
+      exchange_rate REAL DEFAULT 1.0,
+      import_source TEXT, -- 'manual', 'aliexpress', 'amazon', etc.
+      import_date TEXT, -- When this order was imported
+      original_data TEXT, -- JSON of original scraped/imported data
       status TEXT CHECK(status IN ('pending', 'ordered', 'shipped', 'delivered', 'cancelled')) DEFAULT 'delivered',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -200,13 +211,23 @@ export function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS order_items (
       id TEXT PRIMARY KEY,
       order_id TEXT NOT NULL,
-      component_id TEXT NOT NULL,
+      component_id TEXT, -- Can be NULL if component not created yet
+      product_title TEXT NOT NULL, -- Original product title from supplier
+      product_url TEXT, -- Link to original product page
+      product_sku TEXT, -- Supplier's SKU/product ID
+      image_url TEXT, -- Original image URL from supplier
+      local_image_path TEXT, -- Path to locally stored image
       quantity INTEGER NOT NULL,
       unit_cost REAL NOT NULL,
       total_cost REAL GENERATED ALWAYS AS (quantity * unit_cost) STORED,
+      currency TEXT DEFAULT 'USD',
+      specifications TEXT, -- JSON of product specifications
+      variation TEXT, -- Product variation (color, size, etc.)
       notes TEXT,
+      import_confidence REAL DEFAULT 1.0, -- Confidence in automated parsing (0-1)
+      manual_review BOOLEAN DEFAULT 0, -- Flag for items needing manual review
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-      FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE CASCADE
+      FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE SET NULL
     )
   `);
 
@@ -438,6 +459,76 @@ function runMigrations() {
       throw error;
     }
   }
+
+  if (currentVersion < 7) {
+    console.log('Running migration to version 7: Expanding order and order_items tables for import functionality');
+    try {
+      // Add new fields to orders table for import tracking
+      const orderColumns = [
+        'ALTER TABLE orders ADD COLUMN supplier_order_id TEXT DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN tracking_number TEXT DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN shipping_method TEXT DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN shipping_cost REAL DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN tax_amount REAL DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN currency TEXT DEFAULT "USD"',
+        'ALTER TABLE orders ADD COLUMN exchange_rate REAL DEFAULT 1.0',
+        'ALTER TABLE orders ADD COLUMN import_source TEXT DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN import_date TEXT DEFAULT NULL',
+        'ALTER TABLE orders ADD COLUMN original_data TEXT DEFAULT NULL'
+      ];
+
+      for (const sql of orderColumns) {
+        try {
+          db.exec(sql);
+        } catch (error: any) {
+          if (!error.message.includes('duplicate column name')) {
+            throw error;
+          }
+        }
+      }
+
+      // Add new fields to order_items table for detailed product information
+      const orderItemColumns = [
+        'ALTER TABLE order_items ADD COLUMN product_title TEXT DEFAULT NULL',
+        'ALTER TABLE order_items ADD COLUMN product_url TEXT DEFAULT NULL',
+        'ALTER TABLE order_items ADD COLUMN product_sku TEXT DEFAULT NULL',
+        'ALTER TABLE order_items ADD COLUMN image_url TEXT DEFAULT NULL',
+        'ALTER TABLE order_items ADD COLUMN local_image_path TEXT DEFAULT NULL',
+        'ALTER TABLE order_items ADD COLUMN currency TEXT DEFAULT "USD"',
+        'ALTER TABLE order_items ADD COLUMN specifications TEXT DEFAULT NULL',
+        'ALTER TABLE order_items ADD COLUMN variation TEXT DEFAULT NULL',
+        'ALTER TABLE order_items ADD COLUMN import_confidence REAL DEFAULT 1.0',
+        'ALTER TABLE order_items ADD COLUMN manual_review BOOLEAN DEFAULT 0'
+      ];
+
+      for (const sql of orderItemColumns) {
+        try {
+          db.exec(sql);
+        } catch (error: any) {
+          if (!error.message.includes('duplicate column name')) {
+            throw error;
+          }
+        }
+      }
+
+      // Make component_id nullable in order_items (for items without matched components)
+      // Note: SQLite doesn't support changing column constraints directly, so we'll handle this in application logic
+
+      // Add indexes for new fields
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_supplier_order_id ON orders(supplier_order_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_import_source ON orders(import_source)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_order_items_product_title ON order_items(product_title)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_order_items_manual_review ON order_items(manual_review)`);
+
+      // Update schema version
+      db.exec(`INSERT INTO schema_version (version) VALUES (7)`);
+      console.log('Migration to version 7 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 7 failed:', error);
+      throw error;
+    }
+  }
 }
 
 // Helper function to add component history entry
@@ -475,8 +566,11 @@ export function resetDatabase() {
     throw new Error('resetDatabase can only be called in test environment');
   }
   
-  // Drop all tables
+  // Drop all tables (in reverse dependency order)
   const tables = [
+    'schema_version',
+    'order_items',
+    'orders', 
     'component_history',
     'project_components', 
     'boms',

@@ -494,7 +494,7 @@ router.post('/bulk-delete', validateSchema(schemas.bulkDelete), (req, res) => {
 
       // Check if component is used in any projects
       const projectUsageStmt = db.prepare(`
-        SELECT COUNT(*) as count, GROUP_CONCAT(p.name, ", ") as project_names 
+        SELECT COUNT(*) as count, GROUP_CONCAT(p.name, ', ') as project_names 
         FROM project_components pc 
         JOIN projects p ON pc.project_id = p.id 
         WHERE pc.component_id = ?
@@ -505,7 +505,7 @@ router.post('/bulk-delete', validateSchema(schemas.bulkDelete), (req, res) => {
         errors.push({
           id: componentId,
           name: component.name,
-          error: 'Cannot delete component used in projects',
+          error: 'Component used in projects',
           dependencies: [{
             type: 'projects',
             count: projectResult.count,
@@ -539,8 +539,8 @@ router.post('/bulk-delete', validateSchema(schemas.bulkDelete), (req, res) => {
     }
 
     res.json({
-      successful,
-      errors,
+      deleted: successful,
+      failed: errors,
       summary: {
         total: componentIds.length,
         deleted: successful.length,
@@ -581,7 +581,7 @@ router.post('/check-dependencies', validateSchema(schemas.bulkDelete), (req, res
 
       // Check project usage
       const projectUsageStmt = db.prepare(`
-        SELECT COUNT(*) as count, GROUP_CONCAT(p.name, ", ") as project_names 
+        SELECT COUNT(*) as count, GROUP_CONCAT(p.name, ', ') as project_names 
         FROM project_components pc 
         JOIN projects p ON pc.project_id = p.id 
         WHERE pc.component_id = ?
