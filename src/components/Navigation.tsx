@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Package, MapPin, Folder, BarChart3 } from 'lucide-react';
+import { Package, MapPin, Folder, BarChart3, ShoppingCart } from 'lucide-react';
 // import styles from './Navigation.module.css';
 
 export function Navigation() {
@@ -9,6 +9,7 @@ export function Navigation() {
     { path: '/', label: 'Dashboard', icon: BarChart3 },
     { path: '/components', label: 'Components', icon: Package },
     { path: '/locations', label: 'Locations', icon: MapPin },
+    { path: '/orders', label: 'Orders', icon: ShoppingCart },
     { path: '/projects', label: 'Projects', icon: Folder },
   ];
 

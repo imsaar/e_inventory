@@ -3,8 +3,87 @@ import { v4 as uuidv4 } from 'uuid';
 import db, { addComponentHistory } from '../database';
 import { Component, SearchFilters } from '../../src/types';
 import { validateSchema, validateQuery, validateParams, schemas, rateLimit } from '../middleware/validation';
+import { generateComponentQRCodeHTML, generateMixedSizeComponentQRCodeHTML } from '../utils/htmlQR';
 
 const router = express.Router();
+
+// Helper function to get calculated costs for components from orders
+const getComponentCalculatedCosts = (componentIds: string[]) => {
+  if (componentIds.length === 0) return new Map();
+
+  const placeholders = componentIds.map(() => '?').join(',');
+  const costs = db.prepare(`
+    SELECT 
+      oi.component_id,
+      COUNT(DISTINCT o.id) as order_count,
+      SUM(oi.quantity) as total_quantity,
+      AVG(oi.unit_cost) as average_unit_cost,
+      SUM(oi.total_cost) as total_value,
+      MAX(o.order_date) as last_order_date
+    FROM order_items oi
+    JOIN orders o ON oi.order_id = o.id
+    WHERE oi.component_id IN (${placeholders})
+    GROUP BY oi.component_id
+  `).all(componentIds) as any[];
+
+  const costsMap = new Map();
+  for (const cost of costs) {
+    costsMap.set(cost.component_id, {
+      orderCount: cost.order_count,
+      totalQuantity: cost.total_quantity,
+      averageUnitCost: cost.average_unit_cost,
+      totalValue: cost.total_value,
+      lastOrderDate: cost.last_order_date
+    });
+  }
+  return costsMap;
+};
+
+// Helper function to convert database row to API format with calculated costs
+const mapComponentRow = (row: any, calculatedCosts?: any): Component => ({
+  ...row,
+  // Map database field names to camelCase API field names
+  partNumber: row.part_number,
+  packageType: row.package_type,
+  pinCount: row.pin_count,
+  minThreshold: row.min_threshold,
+  // Use calculated costs from orders instead of deprecated fields
+  unitCost: calculatedCosts?.averageUnitCost || undefined,
+  totalCost: calculatedCosts?.totalValue || undefined,
+  quantity: calculatedCosts?.totalQuantity || row.quantity || 0, // Use calculated quantity from orders
+  locationId: row.location_id,
+  datasheetUrl: row.datasheet_url,
+  imageUrl: row.image_url,
+  purchaseDate: calculatedCosts?.lastOrderDate || row.purchase_date,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  qrCode: row.qr_code,
+  qrSize: row.qr_size,
+  generateQr: row.generate_qr,
+  // Parse JSON fields
+  tags: row.tags ? JSON.parse(row.tags) : [],
+  dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
+  weight: row.weight ? JSON.parse(row.weight) : undefined,
+  voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
+  current: row.current ? JSON.parse(row.current) : undefined,
+  protocols: row.protocols ? JSON.parse(row.protocols) : [],
+  // Remove snake_case duplicates
+  part_number: undefined,
+  package_type: undefined,
+  pin_count: undefined,
+  min_threshold: undefined,
+  unit_cost: undefined,
+  total_cost: undefined,
+  location_id: undefined,
+  datasheet_url: undefined,
+  image_url: undefined,
+  purchase_date: undefined,
+  created_at: undefined,
+  updated_at: undefined,
+  qr_code: undefined,
+  qr_size: undefined,
+  generate_qr: undefined
+} as Component);
 
 // Apply rate limiting to all routes
 router.use(rateLimit(200, 15 * 60 * 1000)); // 200 requests per 15 minutes
@@ -95,43 +174,15 @@ router.get('/', validateQuery(schemas.search), (req, res) => {
     const stmt = db.prepare(sql);
     const rows = stmt.all(...params) as any[];
     
-    // Parse JSON fields and map database field names to API field names
-    const components = rows.map((row: any) => ({
-      ...row,
-      // Map database field names to camelCase API field names
-      partNumber: row.part_number,
-      packageType: row.package_type,
-      pinCount: row.pin_count,
-      minThreshold: row.min_threshold,
-      unitCost: row.unit_cost,
-      totalCost: row.total_cost,
-      locationId: row.location_id,
-      datasheetUrl: row.datasheet_url,
-      imageUrl: row.image_url,
-      purchaseDate: row.purchase_date,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      // Parse JSON fields
-      tags: row.tags ? JSON.parse(row.tags) : [],
-      dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
-      weight: row.weight ? JSON.parse(row.weight) : undefined,
-      voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
-      current: row.current ? JSON.parse(row.current) : undefined,
-      protocols: row.protocols ? JSON.parse(row.protocols) : [],
-      // Remove snake_case duplicates
-      part_number: undefined,
-      package_type: undefined,
-      pin_count: undefined,
-      min_threshold: undefined,
-      unit_cost: undefined,
-      total_cost: undefined,
-      location_id: undefined,
-      datasheet_url: undefined,
-      image_url: undefined,
-      purchase_date: undefined,
-      created_at: undefined,
-      updated_at: undefined
-    }));
+    // Get calculated costs for all components
+    const componentIds = rows.map(row => row.id);
+    const calculatedCosts = getComponentCalculatedCosts(componentIds);
+    
+    // Parse JSON fields and map database field names to API field names with calculated costs
+    const components = rows.map((row: any) => {
+      const costs = calculatedCosts.get(row.id);
+      return mapComponentRow(row, costs);
+    });
 
     res.json(components);
   } catch (error) {
@@ -150,43 +201,12 @@ router.get('/:id', validateParams(['id']), (req, res) => {
       return res.status(404).json({ error: 'Component not found' });
     }
 
-    // Parse JSON fields and map database field names to API field names
-    const component = {
-      ...row,
-      // Map database field names to camelCase API field names
-      partNumber: row.part_number,
-      packageType: row.package_type,
-      pinCount: row.pin_count,
-      minThreshold: row.min_threshold,
-      unitCost: row.unit_cost,
-      totalCost: row.total_cost,
-      locationId: row.location_id,
-      datasheetUrl: row.datasheet_url,
-      imageUrl: row.image_url,
-      purchaseDate: row.purchase_date,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      // Parse JSON fields
-      tags: row.tags ? JSON.parse(row.tags) : [],
-      dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
-      weight: row.weight ? JSON.parse(row.weight) : undefined,
-      voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
-      current: row.current ? JSON.parse(row.current) : undefined,
-      protocols: row.protocols ? JSON.parse(row.protocols) : [],
-      // Remove snake_case duplicates
-      part_number: undefined,
-      package_type: undefined,
-      pin_count: undefined,
-      min_threshold: undefined,
-      unit_cost: undefined,
-      total_cost: undefined,
-      location_id: undefined,
-      datasheet_url: undefined,
-      image_url: undefined,
-      purchase_date: undefined,
-      created_at: undefined,
-      updated_at: undefined
-    };
+    // Get calculated costs for this component
+    const calculatedCosts = getComponentCalculatedCosts([row.id]);
+    const costs = calculatedCosts.get(row.id);
+    
+    // Parse JSON fields and map database field names to API field names with calculated costs
+    const component = mapComponentRow(row, costs);
 
     res.json(component);
   } catch (error) {
@@ -430,11 +450,14 @@ router.get('/alerts/low-stock', (req, res) => {
     `);
     const lowStockComponents = stmt.all() as any[];
     
-    const components = lowStockComponents.map((row: any) => ({
-      ...row,
-      tags: row.tags ? JSON.parse(row.tags) : [],
-      protocols: row.protocols ? JSON.parse(row.protocols) : [],
-    }));
+    // Get calculated costs for low stock components
+    const componentIds = lowStockComponents.map(row => row.id);
+    const calculatedCosts = getComponentCalculatedCosts(componentIds);
+    
+    const components = lowStockComponents.map((row: any) => {
+      const costs = calculatedCosts.get(row.id);
+      return mapComponentRow(row, costs);
+    });
 
     res.json(components);
   } catch (error) {
@@ -585,6 +608,116 @@ router.post('/check-dependencies', validateSchema(schemas.bulkDelete), (req, res
   } catch (error) {
     console.error('Error checking component dependencies:', error);
     res.status(500).json({ error: 'Failed to check dependencies' });
+  }
+});
+
+// Generate QR codes for components
+router.get('/qr-codes/pdf', (req, res) => {
+  try {
+    // Parse and validate size parameter
+    const sizeParam = req.query.size as string;
+    const validSizes = ['tiny', 'small', 'medium', 'large'] as const;
+    const qrSize = validSizes.includes(sizeParam as any) ? sizeParam as 'tiny' | 'small' | 'medium' | 'large' : 'small';
+    
+    // Parse component IDs parameter if provided
+    const componentIdsParam = req.query.componentIds as string;
+    let whereClause = 'WHERE generate_qr = 1';
+    let queryParams: any[] = [];
+    
+    if (componentIdsParam) {
+      const componentIds = componentIdsParam.split(',').map(id => id.trim()).filter(id => id);
+      if (componentIds.length > 0) {
+        const placeholders = componentIds.map(() => '?').join(',');
+        whereClause += ` AND id IN (${placeholders})`;
+        queryParams = componentIds;
+      }
+    }
+    
+    const stmt = db.prepare(`
+      SELECT * FROM components 
+      ${whereClause}
+      ORDER BY category ASC, name ASC
+    `);
+    const rows = queryParams.length > 0 ? stmt.all(...queryParams) : stmt.all();
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'No components with QR generation enabled found',
+        details: ['Enable QR generation for components or check your selection']
+      });
+    }
+
+    const components = rows.map(mapComponentRow);
+    
+    // Generate HTML with QR codes for printing with specified size
+    const html = generateComponentQRCodeHTML(components, qrSize);
+    
+    const filename = componentIdsParam ? 
+      `component-qr-codes-selected-${qrSize}-${new Date().toISOString().split('T')[0]}.html` :
+      `component-qr-codes-${qrSize}-${new Date().toISOString().split('T')[0]}.html`;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(html);
+
+  } catch (error) {
+    console.error('Error generating component QR codes:', error);
+    res.status(500).json({ error: 'Failed to generate component QR codes' });
+  }
+});
+
+// Generate mixed-size QR codes for components
+router.get('/qr-codes/pdf/mixed', (req, res) => {
+  try {
+    // Parse component IDs parameter (required for mixed generation)
+    const componentIdsParam = req.query.componentIds as string;
+    
+    if (!componentIdsParam) {
+      return res.status(400).json({ 
+        error: 'Component IDs are required for mixed-size QR generation',
+        details: ['Provide componentIds parameter with comma-separated component IDs']
+      });
+    }
+
+    const componentIds = componentIdsParam.split(',').map(id => id.trim()).filter(id => id);
+    
+    if (componentIds.length === 0) {
+      return res.status(400).json({ 
+        error: 'Valid component IDs are required',
+        details: ['Provide at least one valid component ID']
+      });
+    }
+
+    // Query for specified components that have QR generation enabled
+    const placeholders = componentIds.map(() => '?').join(',');
+    const stmt = db.prepare(`
+      SELECT * FROM components 
+      WHERE generate_qr = 1 AND id IN (${placeholders})
+      ORDER BY qr_size ASC, name ASC
+    `);
+    const rows = stmt.all(...componentIds);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'No components with QR generation enabled found for the specified IDs',
+        details: ['Ensure the selected components have QR generation enabled']
+      });
+    }
+
+    const components = rows.map(mapComponentRow);
+    
+    // Generate mixed-size HTML with QR codes grouped by size
+    const html = generateMixedSizeComponentQRCodeHTML(components);
+    
+    const filename = `component-qr-codes-mixed-${new Date().toISOString().split('T')[0]}.html`;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(html);
+
+  } catch (error) {
+    console.error('Error generating mixed-size component QR codes:', error);
+    res.status(500).json({ error: 'Failed to generate mixed-size component QR codes' });
   }
 });
 

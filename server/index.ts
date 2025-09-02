@@ -9,6 +9,8 @@ import locationRoutes from './routes/locations';
 import projectRoutes from './routes/projects';
 import authRoutes from './routes/auth';
 import uploadRoutes from './routes/uploads';
+import databaseRoutes from './routes/database';
+import orderRoutes from './routes/orders';
 import { 
   securityHeaders, 
   generalLimiter, 
@@ -82,7 +84,9 @@ app.use('/api/auth', authRoutes); // Authentication routes (public)
 app.use('/api/components', componentRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/orders', orderRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/database', databaseRoutes);
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {

@@ -42,6 +42,11 @@ export interface Component {
   purchaseDate?: string;
   unitCost?: number;
   totalCost?: number;
+
+  // QR Code generation
+  qrCode?: string;
+  qrSize?: 'tiny' | 'small' | 'medium' | 'large';
+  generateQr?: boolean;
   
   // Location and status
   locationId?: string;
@@ -142,4 +147,35 @@ export interface BOM {
   estimatedCost: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Order {
+  id: string;
+  orderDate: string;
+  supplier?: string;
+  orderNumber?: string;
+  notes?: string;
+  totalAmount?: number;
+  status: 'pending' | 'ordered' | 'shipped' | 'delivered' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrderItem {
+  id: string;
+  orderId: string;
+  componentId: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+  notes?: string;
+}
+
+export interface ComponentWithCalculatedCosts extends Omit<Component, 'unitCost' | 'totalCost' | 'quantity'> {
+  // Calculated from orders
+  averageUnitCost?: number;
+  totalQuantity: number;
+  totalValue?: number;
+  lastOrderDate?: string;
+  orderCount: number;
 }

@@ -113,9 +113,9 @@ export function Projects() {
   }
 
   return (
-    <div className="projects-page">
+    <div className="page-container">
       <div className="page-header">
-        <h1>Projects ({projects.length})</h1>
+        <h1 className="page-title">Projects ({projects.length})</h1>
         <div className="header-actions">
           {projects.length > 0 && (
             <button 

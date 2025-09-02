@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import db from '../database';
 import { validateSchema, validateParams, schemas, rateLimit } from '../middleware/validation';
 import { StorageLocation } from '../../src/types';
-import { generateQRCodeHTML } from '../utils/htmlQR';
+import { generateQRCodeHTML, generateMixedSizeQRCodeHTML } from '../utils/htmlQR';
 
 const router = express.Router();
 
@@ -336,6 +336,61 @@ router.get('/qr-codes/pdf', (req, res) => {
   } catch (error) {
     console.error('Error generating QR codes PDF:', error);
     res.status(500).json({ error: 'Failed to generate QR codes PDF' });
+  }
+});
+
+// Generate mixed-size QR codes PDF/HTML for printing
+router.get('/qr-codes/pdf/mixed', (req, res) => {
+  try {
+    // Parse location IDs parameter (required for mixed generation)
+    const locationIdsParam = req.query.locationIds as string;
+    
+    if (!locationIdsParam) {
+      return res.status(400).json({ 
+        error: 'Location IDs are required for mixed-size QR generation',
+        details: ['Provide locationIds parameter with comma-separated location IDs']
+      });
+    }
+
+    const locationIds = locationIdsParam.split(',').map(id => id.trim()).filter(id => id);
+    
+    if (locationIds.length === 0) {
+      return res.status(400).json({ 
+        error: 'Valid location IDs are required',
+        details: ['Provide at least one valid location ID']
+      });
+    }
+
+    // Query for specified locations that have QR codes
+    const placeholders = locationIds.map(() => '?').join(',');
+    const stmt = db.prepare(`
+      SELECT * FROM storage_locations 
+      WHERE qr_code IS NOT NULL AND qr_code != '' AND id IN (${placeholders})
+      ORDER BY qr_size ASC, name ASC
+    `);
+    const rows = stmt.all(...locationIds);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'No locations with QR codes found for the specified IDs',
+        details: ['Ensure the selected locations have QR codes assigned']
+      });
+    }
+
+    const locations = rows.map(mapLocationRow);
+    
+    // Generate mixed-size HTML with QR codes grouped by size
+    const html = generateMixedSizeQRCodeHTML(locations);
+    
+    const filename = `location-qr-codes-mixed-${new Date().toISOString().split('T')[0]}.html`;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(html);
+
+  } catch (error) {
+    console.error('Error generating mixed-size QR codes:', error);
+    res.status(500).json({ error: 'Failed to generate mixed-size QR codes' });
   }
 });
 

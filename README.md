@@ -48,19 +48,25 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ## Recent Enhancements
 
+🛒 **Order Management System (January 2025)** - Complete order tracking with supplier management, comprehensive order forms with real-time cost calculations, advanced search and filtering, and detailed order views with full component breakdowns.
+
+🔍 **Enhanced Search Experience (January 2025)** - Advanced search functionality across all pages with real-time filtering, multi-parameter search on components and orders, intelligent sorting options, and responsive search interfaces optimized for mobile and desktop.
+
+📊 **Dashboard Enhancements (January 2025)** - Added comprehensive order statistics, recent orders display with interactive cards, enhanced database management section with detailed metrics, and improved visual design with better stat card styling.
+
+🎨 **UI/UX Improvements (January 2025)** - Refined component forms by removing redundant quantity/cost fields (now calculated from orders), improved button contrast and accessibility, enhanced responsive grid layouts, and consistent visual styling across all components.
+
 ✨ **Enhanced User Interface (September 2025)** - Complete UI/UX overhaul with modern flexbox-based layouts, professional visual hierarchy, and mobile-responsive design. Enhanced detail views with comprehensive information display and intuitive navigation.
 
 🖨️ **Dedicated QR Printing Page** - Moved from modal-based QR printing to a standalone page with individual size controls per location. Features card-based layout, advanced generation logic, and optimal printing workflows for mixed container sizes.
 
 👁️ **Professional Detail Views** - Completely redesigned component and location detail views with rich information sections, category icons, status badges, electrical specifications, and comprehensive sidebar statistics. Full responsive design with mobile optimization.
 
-🎨 **Modern Visual Design** - Comprehensive styling updates with consistent color schemes, improved typography, professional badges and indicators, and responsive breakpoints for all screen sizes.
-
 💰 **Enhanced Cost Management** - Full cost tracking implementation with unit costs, total costs, and proper financial calculations. Fixed cost saving functionality with comprehensive validation.
 
 📸 **Complete Photo Management** - Drag-and-drop photo upload with secure file handling, automatic validation, and cleanup. Photos display in detail views and forms with error handling and proper security measures.
 
-🗄️ **Database Evolution** - Advanced migration system (v1→v4) with proper schema versioning, field additions, and backward compatibility. Automatic upgrades without data loss.
+🗄️ **Database Evolution** - Advanced migration system (v1→v6) with proper schema versioning, field additions, and backward compatibility. Automatic upgrades without data loss.
 
 ## Quick Start
 
@@ -133,6 +139,18 @@ A comprehensive web-based inventory management system designed specifically for 
 - `DELETE /api/projects/:projectId/components/:componentId` - Remove component
 - `POST /api/projects/:id/bom` - Generate BOM
 - `GET /api/projects/:id/boms` - List project BOMs
+
+### Orders
+- `GET /api/orders` - List all orders with advanced search and filtering
+- `GET /api/orders/:id` - Get order details with all order items
+- `POST /api/orders` - Create new order with component items
+- `PUT /api/orders/:id` - Update order information
+- `DELETE /api/orders/:id` - Delete order and reverse inventory changes
+
+### Database Management
+- `GET /api/database/info` - Get database information and statistics
+- `GET /api/database/export` - Export database backup
+- `POST /api/database/import` - Import database from backup file
 
 ### File Uploads
 - `POST /api/uploads/photo` - Upload component/location photos (multipart/form-data)

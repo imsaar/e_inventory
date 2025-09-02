@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Grid, List, Package, Trash2, Square } from 'lucide-react';
+import { Plus, Grid, List, Package, Trash2, Square, QrCode } from 'lucide-react';
 import { Component, SearchFilters } from '../types';
 import { ComponentCard } from '../components/ComponentCard';
 import { ComponentForm } from '../components/ComponentForm';
@@ -195,14 +195,50 @@ export function Components() {
     }
   };
 
+  const handleGenerateQRCodes = async () => {
+    if (selectedComponents.size === 0) {
+      alert('Please select at least one component to generate QR codes for.');
+      return;
+    }
+
+    try {
+      // Get all selected component IDs
+      const selectedComponentIds = Array.from(selectedComponents);
+      
+      // Generate QR codes for selected components using small size (default)
+      const url = `/api/components/qr-codes/pdf?size=small&componentIds=${selectedComponentIds.join(',')}`;
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate QR codes');
+      }
+      
+      // Open the HTML page in a new window for printing
+      const htmlContent = await response.text();
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(htmlContent);
+        newWindow.document.close();
+        newWindow.focus();
+      }
+      
+      console.log(`QR codes generated for ${selectedComponentIds.length} components`);
+    } catch (error) {
+      console.error('Error generating QR codes:', error);
+      alert('Failed to generate QR codes. Please try again.');
+    }
+  };
+
   if (loading) {
     return <div className="loading">Loading components...</div>;
   }
 
   return (
-    <div className="components-page">
+    <div className="page-container">
       <div className="page-header">
-        <h1>Components ({components.length})</h1>
+        <h1 className="page-title">Components ({components.length})</h1>
         <div className="header-actions">
           {components.length > 0 && (
             <button 
@@ -228,6 +264,16 @@ export function Components() {
           >
             <List size={20} />
           </button>
+          {components.length > 0 && (
+            <button 
+              className="btn btn-secondary"
+              onClick={() => window.open('/component-qr-printing', '_blank')}
+              disabled={bulkMode}
+            >
+              <QrCode size={20} />
+              Print QR Codes
+            </button>
+          )}
           <button 
             className="btn btn-primary"
             onClick={() => setShowForm(true)}
@@ -259,6 +305,14 @@ export function Components() {
                 disabled={selectedComponents.size === 0}
               >
                 Clear
+              </button>
+              <button 
+                className="btn btn-small btn-primary"
+                onClick={handleGenerateQRCodes}
+                disabled={selectedComponents.size === 0}
+              >
+                <QrCode size={14} />
+                Generate QR Codes
               </button>
               <button 
                 className="btn btn-small btn-danger"

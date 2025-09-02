@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 6;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -180,6 +180,36 @@ export function initializeDatabase() {
     )
   `);
 
+  // Orders table for tracking purchases
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      order_date TEXT NOT NULL,
+      supplier TEXT,
+      order_number TEXT,
+      notes TEXT,
+      total_amount REAL,
+      status TEXT CHECK(status IN ('pending', 'ordered', 'shipped', 'delivered', 'cancelled')) DEFAULT 'delivered',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
+  // Order items table for component quantities and costs per order
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_items (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      component_id TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      unit_cost REAL NOT NULL,
+      total_cost REAL GENERATED ALWAYS AS (quantity * unit_cost) STORED,
+      notes TEXT,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE CASCADE
+    )
+  `);
+
   // Create indexes for better search performance
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_components_category ON components(category);
@@ -190,6 +220,10 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_storage_locations_parent ON storage_locations(parent_id);
     CREATE INDEX IF NOT EXISTS idx_project_components_project ON project_components(project_id);
     CREATE INDEX IF NOT EXISTS idx_component_history_component ON component_history(component_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_supplier ON orders(supplier);
+    CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date);
+    CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+    CREATE INDEX IF NOT EXISTS idx_order_items_component ON order_items(component_id);
   `);
 
   // Insert default categories and locations if they don't exist
@@ -293,6 +327,115 @@ function runMigrations() {
         console.error('Migration to version 4 failed:', error);
         throw error;
       }
+    }
+  }
+
+  if (currentVersion < 5) {
+    console.log('Running migration to version 5: Adding QR code support to components');
+    try {
+      // Add qr_code and qr_size columns to components table
+      db.exec(`
+        ALTER TABLE components ADD COLUMN qr_code TEXT DEFAULT NULL;
+      `);
+      db.exec(`
+        ALTER TABLE components ADD COLUMN qr_size TEXT DEFAULT 'small';
+      `);
+      db.exec(`
+        ALTER TABLE components ADD COLUMN generate_qr BOOLEAN DEFAULT 1;
+      `);
+      
+      // Update schema version
+      db.exec(`INSERT INTO schema_version (version) VALUES (5)`);
+      console.log('Migration to version 5 completed successfully');
+    } catch (error: any) {
+      // Columns might already exist, check if that's the case
+      if (error.message.includes('duplicate column name')) {
+        console.log('QR code columns already exist in components table');
+        db.exec(`INSERT OR IGNORE INTO schema_version (version) VALUES (5)`);
+      } else {
+        console.error('Migration to version 5 failed:', error);
+        throw error;
+      }
+    }
+  }
+
+  if (currentVersion < 6) {
+    console.log('Running migration to version 6: Adding orders system');
+    try {
+      // Create orders table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS orders (
+          id TEXT PRIMARY KEY,
+          order_date TEXT NOT NULL,
+          supplier TEXT,
+          order_number TEXT,
+          notes TEXT,
+          total_amount REAL,
+          status TEXT CHECK(status IN ('pending', 'ordered', 'shipped', 'delivered', 'cancelled')) DEFAULT 'delivered',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+
+      // Create order_items table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS order_items (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL,
+          component_id TEXT NOT NULL,
+          quantity INTEGER NOT NULL,
+          unit_cost REAL NOT NULL,
+          total_cost REAL GENERATED ALWAYS AS (quantity * unit_cost) STORED,
+          notes TEXT,
+          FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+          FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE CASCADE
+        )
+      `);
+
+      // Create indexes for orders tables
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_orders_supplier ON orders(supplier);
+        CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date);
+        CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+        CREATE INDEX IF NOT EXISTS idx_order_items_component ON order_items(component_id);
+      `);
+
+      // Migrate existing component costs to orders
+      // For each component with cost data, create an order and order item
+      const componentsWithCosts = db.prepare(`
+        SELECT id, unit_cost, total_cost, quantity, supplier, purchase_date
+        FROM components 
+        WHERE unit_cost IS NOT NULL AND unit_cost > 0
+      `).all() as any[];
+
+      for (const comp of componentsWithCosts) {
+        if (comp.unit_cost && comp.quantity > 0) {
+          const orderId = uuidv4();
+          const orderDate = comp.purchase_date || new Date().toISOString().split('T')[0];
+          
+          // Create order
+          db.prepare(`
+            INSERT INTO orders (id, order_date, supplier, notes, total_amount, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          `).run(orderId, orderDate, comp.supplier, 'Migrated from component data', comp.total_cost);
+
+          // Create order item
+          db.prepare(`
+            INSERT INTO order_items (id, order_id, component_id, quantity, unit_cost)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(uuidv4(), orderId, comp.id, comp.quantity, comp.unit_cost);
+        }
+      }
+
+      // Remove cost columns from components table (SQLite doesn't support DROP COLUMN before 3.35)
+      // We'll deprecate them by not using them in the application logic
+
+      // Update schema version
+      db.exec(`INSERT INTO schema_version (version) VALUES (6)`);
+      console.log('Migration to version 6 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 6 failed:', error);
+      throw error;
     }
   }
 }

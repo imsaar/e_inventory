@@ -108,45 +108,33 @@ export function QRPrinting() {
     setGenerating(true);
     
     try {
-      // Group selected locations by their print size
-      const locationsBySize = new Map<string, string[]>();
+      // Get all selected location IDs
+      const selectedLocationIds = Array.from(selectedLocations);
       
-      locations
-        .filter(loc => selectedLocations.has(loc.id))
-        .forEach(loc => {
-          const size = loc.printSize;
-          if (!locationsBySize.has(size)) {
-            locationsBySize.set(size, []);
-          }
-          locationsBySize.get(size)!.push(loc.id);
-        });
+      if (selectedLocationIds.length === 0) {
+        return;
+      }
 
-      // Generate QR codes for each size group
-      for (const [size, locationIds] of locationsBySize) {
-        const url = `/api/locations/qr-codes/pdf?size=${size}&locationIds=${locationIds.join(',')}`;
-        
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to generate QR codes');
-        }
-        
-        // Open the HTML page in a new window for printing
-        const htmlContent = await response.text();
-        const newWindow = window.open('', '_blank');
-        if (newWindow) {
-          newWindow.document.write(htmlContent);
-          newWindow.document.close();
-          newWindow.focus();
-        }
+      // Generate QR codes for all selected locations in one mixed-size page
+      const url = `/api/locations/qr-codes/pdf/mixed?locationIds=${selectedLocationIds.join(',')}`;
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate QR codes');
       }
       
-      // Allow windows to load without showing alert
-      setTimeout(() => {
-        // Windows will open automatically, user can print manually
-        console.log(`QR codes opened in ${locationsBySize.size} window${locationsBySize.size > 1 ? 's' : ''} (grouped by size)`);
-      }, 500);
+      // Open the HTML page in a new window for printing
+      const htmlContent = await response.text();
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(htmlContent);
+        newWindow.document.close();
+        newWindow.focus();
+      }
+      
+      console.log(`QR codes generated for ${selectedLocationIds.length} locations with mixed sizes`);
       
     } catch (error) {
       console.error('Error generating QR codes:', error);
@@ -296,9 +284,9 @@ export function QRPrinting() {
         <div className="printing-info">
           <h3>Printing Instructions</h3>
           <ul>
-            <li>QR codes will be grouped by size and opened in separate browser windows</li>
-            <li>Each window contains printable QR labels optimized for that size</li>
-            <li>Use your browser's print function (Ctrl+P) to print each page</li>
+            <li>Select locations and adjust individual QR sizes as needed</li>
+            <li>All selected locations will be printed together, grouped by size</li>
+            <li>Use your browser's print function (Ctrl+P) to print the QR labels</li>
             <li>For best results, use adhesive label sheets matching the grid layout</li>
           </ul>
         </div>

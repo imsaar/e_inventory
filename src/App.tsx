@@ -5,6 +5,8 @@ import { Components } from './pages/Components';
 import { Locations } from './pages/Locations';
 import { Projects } from './pages/Projects';
 import { QRPrinting } from './pages/QRPrinting';
+import { ComponentQRPrinting } from './pages/ComponentQRPrinting';
+import { Orders } from './pages/Orders';
 import './App.css';
 
 function App() {
@@ -16,8 +18,10 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/components" element={<Components />} />
+            <Route path="/component-qr-printing" element={<ComponentQRPrinting />} />
             <Route path="/locations" element={<Locations />} />
             <Route path="/locations/qr-printing" element={<QRPrinting />} />
+            <Route path="/orders" element={<Orders />} />
             <Route path="/projects" element={<Projects />} />
           </Routes>
         </main>

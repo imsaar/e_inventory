@@ -237,9 +237,9 @@ export function Locations() {
   }
 
   return (
-    <div className="locations-page">
+    <div className="page-container">
       <div className="page-header">
-        <h1>Storage Locations</h1>
+        <h1 className="page-title">Storage Locations</h1>
         <div className="header-actions">
           {locations.length > 0 && (
             <>

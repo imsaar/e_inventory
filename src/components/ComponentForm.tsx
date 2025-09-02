@@ -43,12 +43,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
     category: '',
     subcategory: '',
     tags: [] as string[],
-    quantity: 0,
     minThreshold: 0,
-    supplier: '',
-    purchaseDate: '',
-    unitCost: 0,
-    totalCost: 0,
     locationId: '',
     status: 'available' as Component['status'],
     datasheetUrl: '',
@@ -73,12 +68,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
         category: component.category || '',
         subcategory: component.subcategory || '',
         tags: component.tags || [],
-        quantity: component.quantity || 0,
         minThreshold: component.minThreshold || 0,
-        supplier: component.supplier || '',
-        purchaseDate: component.purchaseDate || '',
-        unitCost: component.unitCost || 0,
-        totalCost: component.totalCost || 0,
         locationId: component.locationId || '',
         status: component.status || 'available',
         datasheetUrl: component.datasheetUrl || '',
@@ -120,7 +110,6 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
     try {
       const submitData = {
         ...formData,
-        totalCost: formData.unitCost * formData.quantity,
         voltage: formData.voltage?.min || formData.voltage?.max ? formData.voltage : undefined,
         current: formData.current?.value && formData.current.value > 0 ? formData.current : undefined,
         locationId: formData.locationId || undefined
@@ -318,17 +307,6 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
 
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label">Quantity *</label>
-              <input
-                type="number"
-                className="form-input"
-                value={formData.quantity}
-                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
-                required
-              />
-            </div>
-
-            <div className="form-group">
               <label className="form-label">Min Threshold</label>
               <input
                 type="number"
@@ -336,17 +314,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
                 value={formData.minThreshold}
                 onChange={(e) => setFormData({ ...formData, minThreshold: parseInt(e.target.value) || 0 })}
               />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Unit Cost ($)</label>
-              <input
-                type="number"
-                step="0.01"
-                className="form-input"
-                value={formData.unitCost || ''}
-                onChange={(e) => setFormData({ ...formData, unitCost: parseFloat(e.target.value) || 0 })}
-              />
+              <small className="form-help">Alert when quantity falls below this number</small>
             </div>
           </div>
 
