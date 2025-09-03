@@ -85,8 +85,8 @@ const mapComponentRow = (row: any, calculatedCosts?: any): Component => ({
   generate_qr: undefined
 } as Component);
 
-// Apply rate limiting to all routes
-router.use(rateLimit(200, 15 * 60 * 1000)); // 200 requests per 15 minutes
+// Apply rate limiting to all routes - minimum 100 requests per minute
+router.use(rateLimit(300, 1 * 60 * 1000)); // 300 requests per minute
 
 // Get all components with optional filtering
 router.get('/', validateQuery(schemas.search), (req, res) => {

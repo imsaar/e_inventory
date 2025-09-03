@@ -26,10 +26,10 @@ export const securityHeaders = helmet({
   referrerPolicy: { policy: "strict-origin-when-cross-origin" }
 });
 
-// Rate limiting configurations
+// Rate limiting configurations - minimum 100 requests per minute
 export const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 1000 : 10000, // More lenient in development
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 500, // 500 requests per minute (well above minimum)
   message: {
     error: 'Too many requests from this IP',
     details: ['Please try again later']
@@ -39,8 +39,8 @@ export const generalLimiter = rateLimit({
 });
 
 export const strictLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs for sensitive endpoints
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 200, // 200 requests per minute for sensitive endpoints
   message: {
     error: 'Rate limit exceeded for this endpoint',
     details: ['Please try again later']
@@ -50,8 +50,8 @@ export const strictLimiter = rateLimit({
 });
 
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 authentication attempts per windowMs
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute for authentication
   message: {
     error: 'Too many authentication attempts',
     details: ['Account temporarily locked. Try again later.']

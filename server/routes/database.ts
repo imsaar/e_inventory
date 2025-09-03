@@ -9,9 +9,8 @@ import db from '../database';
 
 const router = express.Router();
 
-// Apply rate limiting for database operations
-// Only rate limit info requests to prevent abuse
-router.use('/info', rateLimit(30, 5 * 60 * 1000)); // 30 info requests per 5 minutes
+// Apply rate limiting for database operations - minimum 100 requests per minute
+router.use('/info', rateLimit(150, 1 * 60 * 1000)); // 150 info requests per minute
 
 // Configure multer for database file uploads
 const upload = multer({

@@ -7,8 +7,8 @@ import { generateQRCodeHTML, generateMixedSizeQRCodeHTML } from '../utils/htmlQR
 
 const router = express.Router();
 
-// Apply rate limiting to all routes
-router.use(rateLimit(200, 15 * 60 * 1000)); // 200 requests per 15 minutes
+// Apply rate limiting to all routes - minimum 100 requests per minute
+router.use(rateLimit(300, 1 * 60 * 1000)); // 300 requests per minute
 
 // Helper function to convert database row to API format
 const mapLocationRow = (row: any): StorageLocation => ({
