@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Plus, ShoppingCart, Package, Calendar, DollarSign, Trash2, Upload, CheckSquare, Square, X } from 'lucide-react';
+import { Plus, ShoppingCart, Package, Calendar, DollarSign, Trash2, Upload, CheckSquare, Square, X, Grid, List } from 'lucide-react';
 import { Order } from '../types';
 import { OrderForm } from '../components/OrderForm';
 import { OrderSearch } from '../components/OrderSearch';
 import { OrderDetailView } from '../components/OrderDetailView';
 import { AliExpressImport } from '../components/AliExpressImport';
+import { useDashboardRefresh } from '../hooks/useDashboardRefresh';
 
 interface OrderFilters {
   status?: string;
@@ -31,6 +32,9 @@ export function Orders() {
   const [showImport, setShowImport] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+
+  const { triggerRefresh } = useDashboardRefresh();
 
   // Get unique suppliers for filter options
   const suppliers = Array.from(new Set(allOrders.map(o => o.supplier).filter(Boolean) as string[])).sort();
@@ -102,6 +106,7 @@ export function Orders() {
       await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
       loadAllOrders();
       searchOrders();
+      triggerRefresh();
     } catch (error) {
       console.error('Error deleting order:', error);
       alert('Failed to delete order');
@@ -113,12 +118,14 @@ export function Orders() {
     setEditingOrder(null);
     loadAllOrders();
     searchOrders();
+    triggerRefresh();
   };
 
   const handleImportComplete = (results: any) => {
     setShowImport(false);
     loadAllOrders();
     searchOrders();
+    triggerRefresh();
     
     // Show import results notification
     if (results.imported > 0) {
@@ -145,6 +152,7 @@ export function Orders() {
       setDetailOrderId(null);
       loadAllOrders();
       searchOrders();
+      triggerRefresh();
     } catch (error) {
       console.error('Error deleting order:', error);
       alert('Failed to delete order');
@@ -197,6 +205,7 @@ export function Orders() {
         setSelectedOrders(new Set());
         loadAllOrders();
         searchOrders();
+        triggerRefresh();
       } else {
         console.error(`Bulk delete failed: ${result.error || result.message || 'Unknown error'}`);
       }
@@ -232,6 +241,24 @@ export function Orders() {
       <div className="page-header">
         <h1 className="page-title">Orders ({orders.length})</h1>
         <div className="header-actions">
+          {orders.length > 0 && (
+            <>
+              <button
+                className={`btn btn-secondary ${viewMode === 'grid' ? 'active' : ''}`}
+                onClick={() => setViewMode('grid')}
+                disabled={selectedOrders.size > 0}
+              >
+                <Grid size={20} />
+              </button>
+              <button
+                className={`btn btn-secondary ${viewMode === 'list' ? 'active' : ''}`}
+                onClick={() => setViewMode('list')}
+                disabled={selectedOrders.size > 0}
+              >
+                <List size={20} />
+              </button>
+            </>
+          )}
           <button 
             className="btn btn-secondary"
             onClick={() => setShowImport(true)}
@@ -320,22 +347,23 @@ export function Orders() {
             )}
           </div>
         ) : (
-          <div className="orders-grid">
+          <div className={`orders-container ${viewMode}`}>
             {orders.map(order => (
-              <div key={order.id} className={`order-card ${selectedOrders.has(order.id) ? 'selected' : ''}`}>
-                <div className="order-header">
-                  <div className="order-checkbox">
-                    <label className="checkbox-container">
-                      <input
-                        type="checkbox"
-                        checked={selectedOrders.has(order.id)}
-                        onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                      <span className="checkmark"></span>
-                    </label>
-                  </div>
-                  <div className="order-info">
+              <div key={order.id} className={`order-card ${viewMode === 'list' ? 'order-list-item' : ''} ${selectedOrders.has(order.id) ? 'selected' : ''}`}>
+                <div className="order-checkbox">
+                  <label className="checkbox-container">
+                    <input
+                      type="checkbox"
+                      checked={selectedOrders.has(order.id)}
+                      onChange={(e) => handleSelectOrder(order.id, e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <span className="checkmark"></span>
+                  </label>
+                </div>
+                
+                <div className="order-content">
+                  <div className="order-main-info">
                     <h3 className="order-number">
                       {order.orderNumber || `Order ${order.id.slice(-8)}`}
                     </h3>
@@ -348,51 +376,72 @@ export function Orders() {
                       )}
                     </div>
                   </div>
-                  <div className="order-actions">
-                    <button 
-                      className="btn-icon btn-danger"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteOrder(order.id);
-                      }}
-                      title="Delete order"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
 
-                <div className="order-body">
-                  <div className="order-details">
+                  <div className="order-details-inline">
                     <div className="detail-item">
                       <Calendar size={16} />
-                      <span>Date: {formatDate(order.orderDate)}</span>
+                      <span>{formatDate(order.orderDate)}</span>
                     </div>
-                    {order.totalAmount && (
-                      <div className="detail-item">
-                        <DollarSign size={16} />
-                        <span>Total: {formatCurrency(order.totalAmount)}</span>
-                      </div>
-                    )}
+                    <div className="detail-item">
+                      <DollarSign size={16} />
+                      <span>{formatCurrency(order.totalAmount || (order as any).calculatedTotal || 0)}</span>
+                    </div>
                     <div className="detail-item">
                       <Package size={16} />
                       <span>{(order as any).itemCount || 0} items</span>
                     </div>
                   </div>
 
-                  {order.notes && (
-                    <div className="order-notes">
-                      <p>{order.notes}</p>
+                  {(order as any).itemsSummary && (order as any).itemsSummary.length > 0 && (
+                    <div className={`order-items-summary ${viewMode === 'list' ? 'items-summary-list' : ''}`}>
+                      {viewMode === 'grid' && <h4>Items:</h4>}
+                      <div className="items-list">
+                        {(order as any).itemsSummary.map((item: any, index: number) => (
+                          <div key={index} className={`order-item-detail item-with-thumbnail`}>
+                            {item.image && (
+                              <img 
+                                src={`/uploads/${item.image}`} 
+                                alt={item.name}
+                                className={`item-thumbnail ${viewMode === 'list' ? 'thumbnail-small' : 'thumbnail-grid'}`}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            )}
+                            <span className="item-info">
+                              {item.quantity}× {viewMode === 'list' ? 
+                                (item.name.length > 80 ? `${item.name.substring(0, 80)}...` : item.name) : 
+                                item.name
+                              }
+                            </span>
+                          </div>
+                        ))}
+                        {(order as any).itemCount > (order as any).itemsSummary.length && (
+                          <span className="items-more-text">
+                            +{(order as any).itemCount - (order as any).itemsSummary.length} more {viewMode === 'list' ? '' : 'items'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
 
-                <div className="order-footer">
+                <div className="order-actions">
                   <button 
                     className="btn btn-secondary btn-small"
                     onClick={() => handleViewDetails(order.id)}
                   >
                     View Details
+                  </button>
+                  <button 
+                    className="btn-icon btn-danger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteOrder(order.id);
+                    }}
+                    title="Delete order"
+                  >
+                    <Trash2 size={16} />
                   </button>
                 </div>
               </div>

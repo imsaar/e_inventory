@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
-import { Package, MapPin, Folder, AlertTriangle, TrendingUp, Database, Download, Upload, ShoppingCart, Calendar, DollarSign } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Package, MapPin, Folder, AlertTriangle, TrendingUp, Database, Download, Upload, ShoppingCart, Calendar, DollarSign, Clock } from 'lucide-react';
 import { Component, Order } from '../types';
+import { useDashboardRefreshListener } from '../hooks/useDashboardRefresh';
 
 interface DashboardStats {
   totalComponents: number;
   totalLocations: number;
   totalProjects: number;
   totalOrders: number;
+  pendingOrders: number;
   lowStockCount: number;
   totalValue: number;
   totalOrderValue: number;
@@ -18,6 +20,7 @@ export function Dashboard() {
     totalLocations: 0,
     totalProjects: 0,
     totalOrders: 0,
+    pendingOrders: 0,
     lowStockCount: 0,
     totalValue: 0,
     totalOrderValue: 0
@@ -31,11 +34,7 @@ export function Dashboard() {
   const [importingFull, setImportingFull] = useState(false);
   const [exportingFull, setExportingFull] = useState(false);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       // Fetch all data concurrently, but handle database info separately to ensure it loads even if others fail
       const [componentsRes, locationsRes, projectsRes, ordersRes, lowStockRes, dbInfoRes] = await Promise.all([
@@ -62,11 +61,17 @@ export function Dashboard() {
         sum + (order.totalAmount || order.calculatedTotal || 0), 0
       ) : 0;
 
+      // Count orders that are not delivered (pending delivery)
+      const pendingOrders = Array.isArray(orders) ? orders.filter((order: any) => 
+        order.status !== 'delivered'
+      ).length : 0;
+
       setStats({
         totalComponents: Array.isArray(components) ? components.length : 0,
         totalLocations: Array.isArray(locations) ? locations.length : 0,
         totalProjects: Array.isArray(projects) ? projects.length : 0,
         totalOrders: Array.isArray(orders) ? orders.length : 0,
+        pendingOrders,
         lowStockCount: Array.isArray(lowStock) ? lowStock.length : 0,
         totalValue,
         totalOrderValue
@@ -84,6 +89,7 @@ export function Dashboard() {
         totalLocations: 0,
         totalProjects: 0,
         totalOrders: 0,
+        pendingOrders: 0,
         lowStockCount: 0,
         totalValue: 0,
         totalOrderValue: 0
@@ -99,7 +105,14 @@ export function Dashboard() {
       }
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Listen for refresh events from other pages
+  useDashboardRefreshListener(loadDashboardData);
 
   const handleExportDatabase = async () => {
     try {
@@ -245,6 +258,47 @@ export function Dashboard() {
     }
   };
 
+  const handleFactoryReset = async () => {
+    const confirmMessage = `⚠️ FACTORY RESET WARNING ⚠️
+
+This will PERMANENTLY DELETE all data including:
+• All components, orders, projects, and locations
+• All uploaded images and files  
+• All user data and settings
+
+This action CANNOT be undone unless you have a backup to restore from.
+
+Type "FACTORY RESET" below to confirm:`;
+    
+    const userInput = prompt(confirmMessage);
+    
+    if (userInput !== 'FACTORY RESET') {
+      if (userInput !== null) {
+        alert('Factory reset cancelled. You must type exactly "FACTORY RESET" to proceed.');
+      }
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/database/factory-reset', {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        alert(`✅ ${result.message}\n\nThe page will reload to reflect the changes.`);
+        // Reload the page to reflect the empty state
+        window.location.reload();
+      } else {
+        throw new Error(result.error || 'Unknown error occurred');
+      }
+    } catch (error) {
+      console.error('Error performing factory reset:', error);
+      alert(`❌ Factory reset failed: ${error instanceof Error ? error.message : 'Unknown error'}\n\nPlease try again or contact support.`);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString();
   };
@@ -320,6 +374,16 @@ export function Dashboard() {
 
             <div className="stat-card">
               <div className="stat-icon">
+                <Clock size={32} />
+              </div>
+              <div className="stat-content">
+                <div className="stat-value">{stats.pendingOrders}</div>
+                <div className="stat-label">Pending Orders</div>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon">
                 <TrendingUp size={32} />
               </div>
               <div className="stat-content">
@@ -380,10 +444,6 @@ export function Dashboard() {
                         <span className="order-number">
                           {order.orderNumber || `#${order.id.slice(-8)}`}
                         </span>
-                        <span className="order-date">
-                          <Calendar size={14} />
-                          {formatDate(order.orderDate)}
-                        </span>
                       </div>
                       <span 
                         className="status-badge"
@@ -392,17 +452,52 @@ export function Dashboard() {
                         {order.status}
                       </span>
                     </div>
+                    {/* Items section - moved above supplier/price */}
+                    <div className="order-items-section">
+                      {(order as any).itemsSummary && (order as any).itemsSummary.length > 0 ? (
+                        <div className="items-summary">
+                          {(order as any).itemsSummary.map((item: any, index: number) => (
+                            <div key={index} className="dashboard-item-summary">
+                              {item.image && (
+                                <img 
+                                  src={`/uploads/${item.image}`} 
+                                  alt={item.name}
+                                  className="dashboard-item-thumbnail"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              )}
+                              <span className="dashboard-item-text">
+                                {item.quantity}× {item.name}
+                              </span>
+                            </div>
+                          ))}
+                          {(order as any).itemCount > (order as any).itemsSummary.length && (
+                            <span className="items-more">
+                              +{(order as any).itemCount - (order as any).itemsSummary.length} more
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="order-items">
+                          <Package size={14} />
+                          <span>{(order as any).itemCount || 0} items</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Date, supplier, and price on same line */}
                     <div className="order-summary-details">
+                      <span className="order-date">
+                        <Calendar size={14} />
+                        {formatDate(order.orderDate)}
+                      </span>
                       {order.supplier && (
                         <span className="order-supplier">{order.supplier}</span>
                       )}
-                      <span className="order-total">
-                        <DollarSign size={14} />
+                      <span className="order-total dashboard-order-total">
                         {formatCurrency((order as any).totalAmount || (order as any).calculatedTotal || 0)}
-                      </span>
-                      <span className="order-items">
-                        <Package size={14} />
-                        {(order as any).itemCount || 0} items
                       </span>
                     </div>
                   </div>
@@ -529,6 +624,22 @@ export function Dashboard() {
               />
               <div className="sidebar-note">
                 Select a .zip file to restore complete backup (includes images)
+              </div>
+              
+              <hr style={{ margin: 'var(--spacing-md) 0', border: 'none', borderTop: '1px solid #e5e7eb' }} />
+              
+              <div className="sidebar-section-title">⚠️ Danger Zone</div>
+              
+              <button 
+                className="btn btn-danger btn-full-width"
+                onClick={handleFactoryReset}
+                title="Factory reset - permanently delete all data (UNRECOVERABLE without backup)"
+              >
+                <span style={{ fontSize: '16px' }}>🏭</span>
+                Factory Reset
+              </button>
+              <div className="sidebar-note" style={{ color: '#d32f2f', fontWeight: 'bold' }}>
+                ⚠️ This will permanently delete ALL data including components, orders, projects, and uploaded files. This action cannot be undone!
               </div>
             </div>
           </div>

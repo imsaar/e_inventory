@@ -161,11 +161,28 @@ router.get('/', (req, res) => {
 
     const orders = db.prepare(query).all(...params);
 
-    const mappedOrders = orders.map((row: any) => ({
-      ...mapOrderRow(row),
-      itemCount: row.item_count,
-      calculatedTotal: row.calculated_total
-    }));
+    const mappedOrders = orders.map((row: any) => {
+      // Get a sample of items for this order (up to 3 items)
+      const orderItems = db.prepare(`
+        SELECT oi.quantity, c.name as component_name, c.image_url as component_image
+        FROM order_items oi
+        LEFT JOIN components c ON oi.component_id = c.id
+        WHERE oi.order_id = ?
+        ORDER BY c.name
+        LIMIT 3
+      `).all(row.id);
+      
+      return {
+        ...mapOrderRow(row),
+        itemCount: row.item_count,
+        calculatedTotal: row.calculated_total,
+        itemsSummary: orderItems.map((item: any) => ({
+          name: item.component_name || 'Unknown Component',
+          quantity: item.quantity,
+          image: item.component_image
+        }))
+      };
+    });
 
     res.json(mappedOrders);
   } catch (error) {

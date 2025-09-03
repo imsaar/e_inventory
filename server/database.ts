@@ -247,14 +247,8 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_order_items_component ON order_items(component_id);
   `);
 
-  // Insert default categories and locations if they don't exist
-  const categoriesStmt = db.prepare(`
-    INSERT OR IGNORE INTO components (id, name, category, quantity, min_threshold, created_at, updated_at)
-    VALUES (?, ?, 'category_placeholder', 0, 0, datetime('now'), datetime('now'))
-  `);
-
-  // No default locations created automatically
-  // Users should create their own storage locations as needed
+  // No default data inserted - start with a clean database
+  // Users should create their own components and storage locations as needed
   
   // Run database migrations
   runMigrations();

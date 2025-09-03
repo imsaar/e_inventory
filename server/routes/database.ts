@@ -407,4 +407,177 @@ router.get('/info', (req, res) => {
   }
 });
 
+// DELETE /api/database/factory-reset - Factory reset (wipe all data)
+router.delete('/factory-reset', (req, res) => {
+  try {
+    // Drop all tables and recreate them fresh
+    const dropAndRecreate = db.transaction(() => {
+      // Drop all tables in reverse dependency order
+      db.exec('DROP TABLE IF EXISTS component_history');
+      db.exec('DROP TABLE IF EXISTS project_components');
+      db.exec('DROP TABLE IF EXISTS order_items');
+      db.exec('DROP TABLE IF EXISTS orders');
+      db.exec('DROP TABLE IF EXISTS boms');
+      db.exec('DROP TABLE IF EXISTS components');
+      db.exec('DROP TABLE IF EXISTS projects');
+      db.exec('DROP TABLE IF EXISTS storage_locations');
+      db.exec('DROP TABLE IF EXISTS users');
+      
+      // Recreate all tables with fresh schema
+      db.exec(`
+        CREATE TABLE users (
+          id TEXT PRIMARY KEY DEFAULT (hex(randomblob(16))),
+          username TEXT UNIQUE NOT NULL,
+          email TEXT,
+          password_hash TEXT NOT NULL,
+          role TEXT DEFAULT 'user',
+          is_active BOOLEAN DEFAULT 1,
+          last_login DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE storage_locations (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'box',
+          parent_id TEXT,
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (parent_id) REFERENCES storage_locations(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE components (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          manufacturer TEXT,
+          part_number TEXT,
+          category TEXT NOT NULL,
+          subcategory TEXT,
+          quantity INTEGER NOT NULL DEFAULT 0,
+          min_threshold INTEGER DEFAULT 0,
+          unit_cost REAL DEFAULT 0,
+          total_cost REAL DEFAULT 0,
+          location_id TEXT,
+          datasheet_url TEXT,
+          image_url TEXT,
+          package_type TEXT,
+          status TEXT DEFAULT 'available',
+          tags TEXT,
+          specifications TEXT,
+          notes TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (location_id) REFERENCES storage_locations(id)
+        );
+
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          status TEXT DEFAULT 'planning',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE project_components (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          component_id TEXT NOT NULL,
+          quantity INTEGER NOT NULL DEFAULT 1,
+          notes TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+          FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE orders (
+          id TEXT PRIMARY KEY,
+          order_date TEXT NOT NULL,
+          supplier TEXT,
+          order_number TEXT,
+          supplier_order_id TEXT,
+          notes TEXT,
+          total_amount REAL,
+          import_source TEXT,
+          import_date TEXT,
+          original_data TEXT,
+          status TEXT CHECK(status IN ('pending', 'ordered', 'shipped', 'delivered', 'cancelled')) DEFAULT 'delivered',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE order_items (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL,
+          component_id TEXT,
+          product_title TEXT,
+          product_url TEXT,
+          product_sku TEXT,
+          image_url TEXT,
+          local_image_path TEXT,
+          quantity INTEGER NOT NULL,
+          unit_cost REAL NOT NULL,
+          total_cost REAL GENERATED ALWAYS AS (quantity * unit_cost) STORED,
+          currency TEXT DEFAULT 'USD',
+          specifications TEXT,
+          variation TEXT,
+          notes TEXT,
+          import_confidence REAL DEFAULT 1.0,
+          manual_review INTEGER DEFAULT 0,
+          FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+          FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE component_history (
+          id TEXT PRIMARY KEY,
+          component_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          old_quantity INTEGER,
+          new_quantity INTEGER,
+          notes TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE boms (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          version TEXT NOT NULL DEFAULT '1.0',
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+      `);
+      
+      // Enable foreign keys
+      db.exec('PRAGMA foreign_keys = ON');
+    });
+
+    dropAndRecreate();
+
+    // Delete all uploaded images
+    const uploadsPath = path.join(process.cwd(), 'public', 'uploads');
+    if (fs.existsSync(uploadsPath)) {
+      const files = fs.readdirSync(uploadsPath);
+      for (const file of files) {
+        const filePath = path.join(uploadsPath, file);
+        if (fs.statSync(filePath).isFile()) {
+          fs.unlinkSync(filePath);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Factory reset completed successfully. All tables recreated and files deleted.'
+    });
+  } catch (error) {
+    console.error('Error performing factory reset:', error);
+    res.status(500).json({ error: 'Failed to perform factory reset' });
+  }
+});
+
 export default router;

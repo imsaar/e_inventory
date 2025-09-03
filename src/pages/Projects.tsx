@@ -4,6 +4,7 @@ import { Project } from '../types';
 import { ProjectForm } from '../components/ProjectForm';
 import { BulkDeleteDialog } from '../components/BulkDeleteDialog';
 import { LinkifiedText } from '../utils/linkify';
+import { useDashboardRefresh } from '../hooks/useDashboardRefresh';
 
 export function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -13,6 +14,8 @@ export function Projects() {
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [bulkMode, setBulkMode] = useState(false);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+
+  const { triggerRefresh } = useDashboardRefresh();
 
   useEffect(() => {
     loadProjects();
@@ -35,12 +38,14 @@ export function Projects() {
     loadProjects();
     setShowForm(false);
     setEditingProject(null);
+    triggerRefresh();
   };
 
   const handleProjectDeleted = () => {
     loadProjects();
     setShowForm(false);
     setEditingProject(null);
+    triggerRefresh();
   };
 
   const handleEdit = (project: Project) => {
@@ -83,6 +88,7 @@ export function Projects() {
     setBulkMode(false);
     setSelectedProjects(new Set());
     loadProjects();
+    triggerRefresh();
     
     if (results.summary) {
       const { deleted, failed } = results.summary;

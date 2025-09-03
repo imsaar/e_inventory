@@ -302,7 +302,7 @@ export class AliExpressHTMLParser {
       const orderDate = this.extractOrderDate($) || new Date().toISOString();
       const totalAmount = this.extractTotalAmount($) || 0;
       const supplier = 'AliExpress';
-      const status = 'delivered';
+      const status = 'ordered'; // Default for basic parsing when status unclear
       
       // Try to find product information in the page
       const items = await this.parseOrderItems($);
@@ -351,7 +351,7 @@ export class AliExpressHTMLParser {
       const supplier = this.extractSupplier($) || 'AliExpress';
       
       // Extract order status
-      const status = this.extractOrderStatus($) || 'delivered';
+      const status = this.extractOrderStatus($) || 'ordered';
       
       // Parse all items in the order
       const items = await this.parseOrderItems($);
@@ -413,9 +413,9 @@ export class AliExpressHTMLParser {
       
       // Extract order status from header - AliExpress specific
       const statusElement = orderElement.find('.order-item-header-status-text');
-      let status = 'delivered';
+      let status = 'ordered'; // Default for items without clear status
       if (statusElement.length > 0) {
-        status = this.normalizeOrderStatus(statusElement.text().trim()) || 'delivered';
+        status = this.normalizeOrderStatus(statusElement.text().trim()) || 'ordered';
       }
       
       // Extract store name - AliExpress specific selector
@@ -509,23 +509,38 @@ export class AliExpressHTMLParser {
   private normalizeOrderStatus(statusText: string): string {
     const normalized = statusText.toLowerCase().trim();
     
-    if (normalized.includes('delivered') || normalized.includes('completed') || normalized.includes('finished')) {
+    // RECEIVED: Completed/finished orders (customer confirmed receipt)
+    if (normalized.includes('completed') || normalized.includes('finished') || normalized.includes('received') || normalized.includes('receipt acknowledged') || normalized.includes('confirmed delivery')) {
+      return 'delivered'; // In our system, "delivered" means "received by customer"
+    }
+    // Delivered but need to be more specific than just "delivered" word
+    if (normalized === 'delivered' || normalized.includes('successfully delivered')) {
       return 'delivered';
     }
-    if (normalized.includes('shipped') || normalized.includes('sent') || normalized.includes('transit')) {
-      return 'shipped';
-    }
-    if (normalized.includes('pending') || normalized.includes('waiting') || normalized.includes('processing')) {
-      return 'pending';
-    }
-    if (normalized.includes('cancelled') || normalized.includes('canceled')) {
-      return 'cancelled';
-    }
-    if (normalized.includes('ordered') || normalized.includes('confirmed')) {
-      return 'ordered';
+    
+    // SHIPPED: Item sent but not yet received by customer
+    if (normalized.includes('awaiting delivery') || normalized.includes('shipped') || normalized.includes('sent') || normalized.includes('transit') || normalized.includes('in transit') || normalized.includes('on the way') || normalized.includes('dispatched')) {
+      return 'shipped'; // In transit/awaiting delivery
     }
     
-    return 'delivered'; // Default fallback
+    // ORDERED: Order confirmed but not yet shipped
+    if (normalized.includes('to ship') || normalized.includes('preparing') || normalized.includes('processing') || normalized.includes('confirmed') || normalized.includes('placed')) {
+      return 'ordered'; // Ready to ship or being prepared
+    }
+    
+    // PENDING: Awaiting payment or confirmation
+    if (normalized.includes('pending') || normalized.includes('waiting') || normalized.includes('awaiting payment') || normalized.includes('awaiting confirmation') || normalized.includes('unpaid')) {
+      return 'pending';
+    }
+    
+    // CANCELLED: Order cancelled
+    if (normalized.includes('cancelled') || normalized.includes('canceled') || normalized.includes('refunded')) {
+      return 'cancelled';
+    }
+    
+    // Log unknown status for debugging
+    console.log(`Unknown AliExpress status: "${statusText}" - defaulting to 'ordered'`);
+    return 'ordered'; // Conservative default - assume ordered but not shipped
   }
 
   /**
@@ -996,6 +1011,7 @@ export class AliExpressHTMLParser {
    */
   private extractOrderStatus($: cheerio.CheerioAPI): string | null {
     const selectors = [
+      '.order-item-header-status-text', // AliExpress specific - most accurate
       '.order-status',
       '.status',
       '.delivery-status'
@@ -1004,12 +1020,27 @@ export class AliExpressHTMLParser {
     for (const selector of selectors) {
       const status = $(selector).text().trim().toLowerCase();
       if (status) {
-        // Map AliExpress statuses to our system
-        if (status.includes('delivered') || status.includes('received')) return 'delivered';
-        if (status.includes('shipped') || status.includes('transit')) return 'shipped';
-        if (status.includes('pending') || status.includes('processing')) return 'pending';
-        if (status.includes('cancelled')) return 'cancelled';
-        return status;
+        // Map AliExpress statuses using clear three-state system: Ordered → Shipped → Received
+        
+        // RECEIVED: Customer confirmed receipt (completed transaction)
+        if (status.includes('completed') || status.includes('finished') || status.includes('received') || status.includes('receipt acknowledged') || status.includes('confirmed delivery')) return 'delivered';
+        if (status === 'delivered' || status.includes('successfully delivered')) return 'delivered';
+        
+        // SHIPPED: Item dispatched but not yet received
+        if (status.includes('awaiting delivery') || status.includes('shipped') || status.includes('sent') || status.includes('transit') || status.includes('in transit') || status.includes('on the way') || status.includes('dispatched')) return 'shipped';
+        
+        // ORDERED: Order placed and confirmed but not yet shipped
+        if (status.includes('to ship') || status.includes('preparing') || status.includes('processing') || status.includes('confirmed') || status.includes('placed')) return 'ordered';
+        
+        // PENDING: Awaiting payment or initial confirmation
+        if (status.includes('pending') || status.includes('awaiting payment') || status.includes('awaiting confirmation') || status.includes('unpaid')) return 'pending';
+        
+        // CANCELLED: Order cancelled/refunded
+        if (status.includes('cancelled') || status.includes('canceled') || status.includes('refunded')) return 'cancelled';
+        
+        // Log unknown status for debugging
+        console.log(`Unknown status found in extractOrderStatus: "${status}" - returning 'ordered'`);
+        return 'ordered'; // Default to ordered state
       }
     }
     

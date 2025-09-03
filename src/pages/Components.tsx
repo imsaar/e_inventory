@@ -6,6 +6,7 @@ import { ComponentForm } from '../components/ComponentForm';
 import { BulkDeleteDialog } from '../components/BulkDeleteDialog';
 import { AdvancedSearch } from '../components/AdvancedSearch';
 import { ComponentDetailView } from '../components/ComponentDetailView';
+import { useDashboardRefresh } from '../hooks/useDashboardRefresh';
 
 export function Components() {
   const [components, setComponents] = useState<Component[]>([]);
@@ -24,6 +25,8 @@ export function Components() {
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [showDetailView, setShowDetailView] = useState(false);
   const [detailComponentId, setDetailComponentId] = useState<string | null>(null);
+
+  const { triggerRefresh } = useDashboardRefresh();
 
   const categories = Array.from(new Set(allComponents.map(c => c.category))).sort();
   const subcategories = Array.from(new Set(allComponents.map(c => c.subcategory).filter(Boolean) as string[])).sort();
@@ -97,6 +100,7 @@ export function Components() {
     loadAllComponents();
     setShowForm(false);
     setEditingComponent(null);
+    triggerRefresh();
   };
 
   const handleComponentDeleted = () => {
@@ -104,6 +108,7 @@ export function Components() {
     loadAllComponents();
     setShowForm(false);
     setEditingComponent(null);
+    triggerRefresh();
   };
 
   const handleEdit = (component: Component) => {
@@ -185,6 +190,7 @@ export function Components() {
     setSelectedComponents(new Set());
     searchComponents();
     loadAllComponents();
+    triggerRefresh();
     
     if (results.summary) {
       const { deleted, failed } = results.summary;
