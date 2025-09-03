@@ -123,6 +123,9 @@ tests/data/
 uploads/*
 !uploads/.gitkeep
 
+# Upload backups
+uploads-backup-*
+
 # Build outputs
 dist/
 build/
