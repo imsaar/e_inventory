@@ -112,12 +112,11 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
-data/*.db
-data/*.sqlite
-data/*.sqlite3
+
+# Data directory - contains all databases and data files
+data/
 
 # Test databases
-data/test/
 tests/data/
 
 # Uploaded files
