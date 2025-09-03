@@ -5288,3 +5288,136 @@ label.btn {
   pointer-events: auto; /* Allow button to be clickable even when parent has pointer-events: none */
 }
 
+
+/* Component Detail Orders Section */
+.orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.order-item {
+  background: var(--background-white);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.order-item:hover {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.order-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--spacing-sm);
+}
+
+.order-info {
+  flex: 1;
+}
+
+.order-number {
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: 2px;
+}
+
+.order-link-icon {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.order-supplier {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.order-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-light);
+}
+
+.order-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.order-detail-item .label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.order-detail-item .value {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.cost-highlight {
+  color: var(--success-color) !important;
+  font-weight: 600 !important;
+}
+
+.orders-summary {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background: var(--secondary-color);
+  border-radius: var(--radius-md);
+  display: flex;
+  justify-content: space-around;
+  gap: var(--spacing-md);
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.summary-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.summary-value {
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .order-details {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .orders-summary {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+  
+  .summary-item {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+}

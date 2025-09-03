@@ -179,3 +179,10 @@ export interface ComponentWithCalculatedCosts extends Omit<Component, 'unitCost'
   lastOrderDate?: string;
   orderCount: number;
 }
+
+export interface ComponentOrder extends Pick<Order, 'id' | 'orderDate' | 'supplier' | 'orderNumber' | 'status' | 'totalAmount'> {
+  // Component-specific order details
+  componentQuantity: number;
+  componentUnitCost: number;
+  componentTotalCost: number;
+}

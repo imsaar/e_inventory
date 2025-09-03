@@ -99,6 +99,22 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// Root route - return a simple API info response
+app.get('/', (_req, res) => {
+  res.json({
+    name: 'Electronics Inventory API',
+    version: process.env.npm_package_version || '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/api/health',
+      components: '/api/components',
+      locations: '/api/locations',
+      projects: '/api/projects',
+      orders: '/api/orders'
+    }
+  });
+});
+
 // Handle direct component ID access (for QR codes, etc.)
 app.get(/^\/cmp_[a-zA-Z0-9_]+$/, async (req, res) => {
   const componentId = req.path.substring(1); // Remove leading slash

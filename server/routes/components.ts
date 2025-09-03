@@ -466,6 +466,50 @@ router.get('/alerts/low-stock', (req, res) => {
   }
 });
 
+// Get orders for a specific component
+router.get('/:id/orders', validateParams(['id']), (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get orders containing this component with details
+    const orders = db.prepare(`
+      SELECT 
+        o.id,
+        o.order_date,
+        o.supplier,
+        o.order_number,
+        o.status,
+        o.total_amount,
+        oi.quantity,
+        oi.unit_cost,
+        oi.total_cost
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      WHERE oi.component_id = ?
+      ORDER BY o.order_date DESC
+    `).all(id) as any[];
+
+    // Transform the data to include order item details
+    const ordersWithDetails = orders.map((row: any) => ({
+      id: row.id,
+      orderDate: row.order_date,
+      supplier: row.supplier || 'Unknown',
+      orderNumber: row.order_number,
+      status: row.status,
+      totalAmount: row.total_amount,
+      // Component-specific order details
+      componentQuantity: row.quantity,
+      componentUnitCost: row.unit_cost,
+      componentTotalCost: row.total_cost
+    }));
+
+    res.json(ordersWithDetails);
+  } catch (error) {
+    console.error('Error fetching component orders:', error);
+    res.status(500).json({ error: 'Failed to fetch component orders' });
+  }
+});
+
 // Bulk delete components with dependency checking
 router.post('/bulk-delete', validateSchema(schemas.bulkDelete), (req, res) => {
   try {

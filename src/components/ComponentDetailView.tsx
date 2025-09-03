@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, Edit, Trash2, Package, Calendar, Tag, MapPin, DollarSign, Clipboard, ExternalLink, Zap, Cpu, Info } from 'lucide-react';
-import { Component, StorageLocation } from '../types';
+import { X, Edit, Trash2, Package, Calendar, Tag, MapPin, DollarSign, Clipboard, ExternalLink, Zap, Cpu, Info, ShoppingCart, ExternalLink as LinkIcon } from 'lucide-react';
+import { Component, StorageLocation, ComponentOrder } from '../types';
 import { LinkifiedText } from '../utils/linkify';
 
 interface ComponentDetailViewProps {
@@ -13,6 +13,7 @@ interface ComponentDetailViewProps {
 export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: ComponentDetailViewProps) {
   const [component, setComponent] = useState<Component | null>(null);
   const [location, setLocation] = useState<StorageLocation | null>(null);
+  const [orders, setOrders] = useState<ComponentOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +61,17 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
         } catch (err) {
           console.warn('Failed to load component location:', err);
         }
+      }
+
+      // Load component orders
+      try {
+        const ordersResponse = await fetch(`/api/components/${componentId}/orders`);
+        if (ordersResponse.ok) {
+          const ordersData = await ordersResponse.json();
+          setOrders(ordersData);
+        }
+      } catch (err) {
+        console.warn('Failed to load component orders:', err);
       }
     } catch (err) {
       console.error('Error loading component:', err);
@@ -115,6 +127,23 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const getOrderStatusColor = (status: string) => {
+    switch (status) {
+      case 'delivered': return 'status-available';
+      case 'shipped': return 'status-in-use';
+      case 'ordered': return 'status-reserved';
+      case 'pending': return 'status-needs-testing';
+      case 'cancelled': return 'status-defective';
+      default: return 'status-unknown';
+    }
+  };
+
+  const handleOrderClick = (orderId: string) => {
+    // Navigate to order detail - you could implement this with React Router
+    // For now, we'll open in a new window/tab or trigger a modal
+    window.open(`/orders?orderId=${orderId}`, '_blank');
   };
 
   if (loading) {
@@ -440,6 +469,68 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
                 </div>
               </div>
             </div>
+
+            {orders.length > 0 && (
+              <div className="detail-section">
+                <h3><ShoppingCart size={20} /> Associated Orders ({orders.length})</h3>
+                <div className="orders-list">
+                  {orders.map((order) => (
+                    <div key={order.id} className="order-item" onClick={() => handleOrderClick(order.id)}>
+                      <div className="order-header">
+                        <div className="order-info">
+                          <div className="order-number">
+                            {order.orderNumber || `Order #${order.id.slice(-8)}`}
+                            <LinkIcon size={14} className="order-link-icon" />
+                          </div>
+                          <div className="order-supplier">
+                            {order.supplier || 'Unknown Supplier'}
+                          </div>
+                        </div>
+                        <div className="order-status">
+                          <span className={`status-badge ${getOrderStatusColor(order.status)}`}>
+                            {order.status}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="order-details">
+                        <div className="order-detail-item">
+                          <span className="label">Date:</span>
+                          <span className="value">{new Date(order.orderDate).toLocaleDateString()}</span>
+                        </div>
+                        <div className="order-detail-item">
+                          <span className="label">Quantity:</span>
+                          <span className="value">{order.componentQuantity} units</span>
+                        </div>
+                        <div className="order-detail-item">
+                          <span className="label">Unit Cost:</span>
+                          <span className="value">{formatCurrency(order.componentUnitCost)}</span>
+                        </div>
+                        <div className="order-detail-item">
+                          <span className="label">Total:</span>
+                          <span className="value cost-highlight">{formatCurrency(order.componentTotalCost)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="orders-summary">
+                  <div className="summary-item">
+                    <span className="summary-label">Total Orders:</span>
+                    <span className="summary-value">{orders.length}</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Total Quantity:</span>
+                    <span className="summary-value">{orders.reduce((sum, order) => sum + order.componentQuantity, 0)} units</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Total Spent:</span>
+                    <span className="summary-value cost-highlight">
+                      {formatCurrency(orders.reduce((sum, order) => sum + order.componentTotalCost, 0))}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="detail-sidebar">
