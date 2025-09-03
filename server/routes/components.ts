@@ -16,10 +16,10 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
     SELECT 
       oi.component_id,
       COUNT(DISTINCT o.id) as order_count,
-      SUM(oi.quantity) as total_quantity,
-      AVG(oi.unit_cost) as average_unit_cost,
-      SUM(oi.total_cost) as total_value,
-      MAX(o.order_date) as last_order_date
+      SUM(CASE WHEN o.status = 'delivered' THEN oi.quantity ELSE 0 END) as total_quantity,
+      AVG(CASE WHEN o.status = 'delivered' THEN oi.unit_cost ELSE NULL END) as average_unit_cost,
+      SUM(CASE WHEN o.status = 'delivered' THEN oi.total_cost ELSE 0 END) as total_value,
+      MAX(CASE WHEN o.status = 'delivered' THEN o.order_date ELSE NULL END) as last_order_date
     FROM order_items oi
     JOIN orders o ON oi.order_id = o.id
     WHERE oi.component_id IN (${placeholders})
