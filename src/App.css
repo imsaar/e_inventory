@@ -145,6 +145,8 @@ body {
 .grid-container {
   display: grid;
   gap: var(--spacing-lg);
+  width: 100%;
+  overflow-x: hidden;
 }
 
 .grid-2-col {
@@ -659,6 +661,8 @@ label.btn {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  width: 100%;
+  overflow-x: hidden;
 }
 
 .orders-grid, .alert-grid {
@@ -681,6 +685,10 @@ label.btn {
   align-items: center;
   padding: var(--spacing-md) var(--spacing-lg);
   gap: var(--spacing-lg);
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .order-card:not(.order-list-item) {
@@ -705,6 +713,7 @@ label.btn {
   flex: 1;
   min-width: 0;
   gap: var(--spacing-md);
+  overflow: hidden;
 }
 
 .order-main-info {
@@ -754,6 +763,8 @@ label.btn {
   gap: var(--spacing-sm);
   align-items: center;
   overflow: hidden;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .items-summary-list .order-item-detail {
@@ -769,13 +780,26 @@ label.btn {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 500px;
+  max-width: 400px;
+  flex-shrink: 1;
 }
 
 /* Responsive text wrapping for smaller screens */
+@media (max-width: 1400px) {
+  .items-summary-list .item-info {
+    max-width: 300px;
+  }
+}
+
 @media (max-width: 1200px) {
   .items-summary-list .item-info {
-    max-width: 350px;
+    max-width: 250px;
+  }
+}
+
+@media (max-width: 900px) {
+  .items-summary-list .item-info {
+    max-width: 200px;
   }
 }
 
@@ -821,6 +845,31 @@ label.btn {
   .order-list-item .order-actions {
     align-self: flex-end;
   }
+}
+
+/* Additional order layout improvements */
+.order-number {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 200px;
+}
+
+.supplier {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.order-card {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Prevent horizontal scroll on orders page */
+.page-container {
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 .order-card:hover, .alert-card:hover {
@@ -1009,6 +1058,11 @@ label.btn {
 .status-available {
   background: #e8f5e8;
   color: #2e7d2e;
+}
+
+.status-on_order {
+  background: #e3f2fd;
+  color: #1565c0;
 }
 
 .status-in_use {
@@ -1401,6 +1455,11 @@ label.btn {
 .status-available {
   background: #e8f5e8;
   color: #2e7d2e;
+}
+
+.status-on_order {
+  background: #e3f2fd;
+  color: #1565c0;
 }
 
 .status-in_use {
@@ -2340,6 +2399,7 @@ label.btn {
 }
 
 .status-available { background: #e8f5e8; color: #2e7d32; }
+.status-on-order { background: #e3f2fd; color: #1565c0; }
 .status-in-use { background: #fff3e0; color: #ef6c00; }
 .status-reserved { background: #e8f5e8; color: #1B5E20; }
 .status-needs-testing { background: #fce4ec; color: #c2185b; }
@@ -5485,4 +5545,21 @@ label.btn {
 /* Grid view quantity adjustments */
 .component-footer .quantity-breakdown {
   margin-bottom: var(--spacing-xs);
+}
+
+/* No orders badge styling */
+.quantity-badge.no-orders {
+  background: var(--border-light);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Not available styling for stats */
+.stat-value.not-available {
+  color: var(--text-muted) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
 }

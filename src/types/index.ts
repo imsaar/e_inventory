@@ -52,7 +52,7 @@ export interface Component {
   
   // Location and status
   locationId?: string;
-  status: 'available' | 'in_use' | 'reserved' | 'needs_testing' | 'defective';
+  status: 'available' | 'on_order' | 'in_use' | 'reserved' | 'needs_testing' | 'defective';
   
   // Documentation
   datasheetUrl?: string;

@@ -16,8 +16,9 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
     SELECT 
       oi.component_id,
       COUNT(DISTINCT o.id) as order_count,
-      SUM(CASE WHEN o.status IN ('pending', 'ordered', 'shipped') THEN oi.quantity ELSE 0 END) as on_order_quantity,
-      SUM(oi.quantity) as total_order_quantity,
+      SUM(CASE WHEN o.status = 'delivered' THEN oi.quantity ELSE 0 END) as available_quantity,
+      SUM(CASE WHEN o.status IN ('pending', 'ordered', 'shipped') THEN oi.quantity ELSE 0 END) as pending_quantity,
+      SUM(oi.quantity) as total_quantity,
       AVG(CASE WHEN o.status = 'delivered' THEN oi.unit_cost ELSE NULL END) as average_unit_cost,
       SUM(CASE WHEN o.status = 'delivered' THEN oi.total_cost ELSE 0 END) as total_value,
       MAX(CASE WHEN o.status = 'delivered' THEN o.order_date ELSE NULL END) as last_order_date
@@ -31,8 +32,9 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
   for (const cost of costs) {
     costsMap.set(cost.component_id, {
       orderCount: cost.order_count,
-      onOrderQuantity: cost.on_order_quantity || 0,
-      totalOrderQuantity: cost.total_order_quantity || 0,
+      availableQuantity: cost.available_quantity || 0,
+      pendingQuantity: cost.pending_quantity > 0 ? cost.pending_quantity : undefined,
+      totalQuantity: cost.total_quantity || 0,
       averageUnitCost: cost.average_unit_cost,
       totalValue: cost.total_value,
       lastOrderDate: cost.last_order_date
@@ -42,53 +44,69 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
 };
 
 // Helper function to convert database row to API format with calculated costs
-const mapComponentRow = (row: any, calculatedCosts?: any): Component => ({
-  ...row,
-  // Map database field names to camelCase API field names
-  partNumber: row.part_number,
-  packageType: row.package_type,
-  pinCount: row.pin_count,
-  minThreshold: row.min_threshold,
-  // Use calculated costs and quantities from orders with proper inventory logic
-  unitCost: calculatedCosts?.averageUnitCost || undefined,
-  totalCost: calculatedCosts?.totalValue || undefined,
-  // Calculate quantities properly: base inventory + orders - pending
-  totalQuantity: (row.quantity || 0) + (calculatedCosts?.totalOrderQuantity || 0), // Base + all orders
-  onOrderQuantity: calculatedCosts?.onOrderQuantity || 0, // Pending/shipped orders
-  quantity: Math.max(0, (row.quantity || 0) + (calculatedCosts?.totalOrderQuantity || 0) - (calculatedCosts?.onOrderQuantity || 0)), // Available = Total - Pending
-  locationId: row.location_id,
-  datasheetUrl: row.datasheet_url,
-  imageUrl: row.image_url,
-  purchaseDate: calculatedCosts?.lastOrderDate || row.purchase_date,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-  qrCode: row.qr_code,
-  qrSize: row.qr_size,
-  generateQr: row.generate_qr,
-  // Parse JSON fields
-  tags: row.tags ? JSON.parse(row.tags) : [],
-  dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
-  weight: row.weight ? JSON.parse(row.weight) : undefined,
-  voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
-  current: row.current ? JSON.parse(row.current) : undefined,
-  protocols: row.protocols ? JSON.parse(row.protocols) : [],
-  // Remove snake_case duplicates
-  part_number: undefined,
-  package_type: undefined,
-  pin_count: undefined,
-  min_threshold: undefined,
-  unit_cost: undefined,
-  total_cost: undefined,
-  location_id: undefined,
-  datasheet_url: undefined,
-  image_url: undefined,
-  purchase_date: undefined,
-  created_at: undefined,
-  updated_at: undefined,
-  qr_code: undefined,
-  qr_size: undefined,
-  generate_qr: undefined
-} as Component);
+const mapComponentRow = (row: any, calculatedCosts?: any): Component => {
+  const availableQuantity = calculatedCosts?.availableQuantity || 0;
+  const pendingQuantity = calculatedCosts?.pendingQuantity || 0;
+  
+  // Automatically set status based on availability
+  let status = row.status;
+  if (availableQuantity > 0) {
+    status = 'available';
+  } else if (pendingQuantity > 0) {
+    status = 'on_order'; // Component is on order but not yet delivered
+  } else {
+    status = 'needs_testing'; // Component needs to be ordered
+  }
+  
+  return {
+    ...row,
+    // Map database field names to camelCase API field names
+    partNumber: row.part_number,
+    packageType: row.package_type,
+    pinCount: row.pin_count,
+    minThreshold: row.min_threshold,
+    // Use calculated quantities from orders only (ignore base inventory quantity)
+    unitCost: calculatedCosts?.averageUnitCost || undefined,
+    totalCost: calculatedCosts?.totalValue || undefined,
+    // Quantities based purely on orders
+    totalQuantity: calculatedCosts?.totalQuantity || 0, // Sum of all ordered quantities
+    onOrderQuantity: calculatedCosts?.pendingQuantity > 0 ? calculatedCosts?.pendingQuantity : undefined, // Pending/shipped orders
+    quantity: availableQuantity, // Delivered orders only
+    status, // Automatically calculated status
+    locationId: row.location_id,
+    datasheetUrl: row.datasheet_url,
+    imageUrl: row.image_url,
+    purchaseDate: calculatedCosts?.lastOrderDate || row.purchase_date,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    qrCode: row.qr_code,
+    qrSize: row.qr_size,
+    generateQr: row.generate_qr,
+    // Parse JSON fields
+    tags: row.tags ? JSON.parse(row.tags) : [],
+    dimensions: row.dimensions ? JSON.parse(row.dimensions) : undefined,
+    weight: row.weight ? JSON.parse(row.weight) : undefined,
+    voltage: row.voltage ? JSON.parse(row.voltage) : undefined,
+    current: row.current ? JSON.parse(row.current) : undefined,
+    protocols: row.protocols ? JSON.parse(row.protocols) : [],
+    // Remove snake_case duplicates
+    part_number: undefined,
+    package_type: undefined,
+    pin_count: undefined,
+    min_threshold: undefined,
+    unit_cost: undefined,
+    total_cost: undefined,
+    location_id: undefined,
+    datasheet_url: undefined,
+    image_url: undefined,
+    purchase_date: undefined,
+    created_at: undefined,
+    updated_at: undefined,
+    qr_code: undefined,
+    qr_size: undefined,
+    generate_qr: undefined
+  } as Component;
+};
 
 // Apply rate limiting to all routes - minimum 100 requests per minute
 router.use(rateLimit(300, 1 * 60 * 1000)); // 300 requests per minute
@@ -223,6 +241,7 @@ router.get('/:id', validateParams(['id']), (req, res) => {
 // Create new component
 router.post('/', validateSchema(schemas.component), (req, res) => {
   try {
+    console.log('POST /api/components - Request received:', JSON.stringify(req.body, null, 2));
     const component: Partial<Component> = req.body;
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -251,7 +270,7 @@ router.post('/', validateSchema(schemas.component), (req, res) => {
       component.voltage ? JSON.stringify(component.voltage) : null,
       component.current ? JSON.stringify(component.current) : null,
       component.pinCount || null,
-      JSON.stringify(component.protocols || []),
+      component.protocols ? JSON.stringify(component.protocols) : null,
       component.quantity || 0,
       component.minThreshold || 0,
       component.supplier || null,
@@ -311,7 +330,6 @@ router.put('/:id', validateParams(['id']), validateSchema(schemas.component.part
         quantity = COALESCE(?, quantity),
         min_threshold = COALESCE(?, min_threshold),
         supplier = COALESCE(?, supplier),
-        purchase_date = COALESCE(?, purchase_date),
         unit_cost = COALESCE(?, unit_cost),
         total_cost = COALESCE(?, total_cost),
         location_id = COALESCE(?, location_id),
@@ -341,7 +359,6 @@ router.put('/:id', validateParams(['id']), validateSchema(schemas.component.part
       updates.quantity,
       updates.minThreshold,
       updates.supplier,
-      updates.purchaseDate,
       updates.unitCost,
       updates.totalCost,
       updates.locationId,

@@ -381,7 +381,11 @@ export function Locations() {
                         <div className="component-details">
                           <span className="component-category">{component.category}</span>
                           <div className="component-quantity">
-                            <span className="quantity-badge available">{component.quantity} avail</span>
+                            {component.quantity > 0 ? (
+                              <span className="quantity-badge available">{component.quantity} avail</span>
+                            ) : (
+                              <span className="quantity-badge not-available">Not Available</span>
+                            )}
                             {component.onOrderQuantity && component.onOrderQuantity > 0 && (
                               <span className="quantity-badge on-order">+{component.onOrderQuantity}</span>
                             )}

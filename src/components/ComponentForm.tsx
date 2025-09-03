@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Save, Trash2 } from 'lucide-react';
 import { Component, StorageLocation } from '../types';
 import { TagInput } from './TagInput';
+import { PhotoUpload } from './PhotoUpload';
 
 interface ComponentFormProps {
   component?: Component | null;
@@ -11,6 +12,7 @@ interface ComponentFormProps {
 }
 
 const CATEGORIES = [
+  'Battery',
   'Microcontrollers',
   'Sensors',
   'Motors',
@@ -21,10 +23,14 @@ const CATEGORIES = [
   'Development Boards',
   'Tools',
   'Cables',
+  'Integrated Circuits',
+  'Displays',
+  'Electronic Component',
   'Other'
 ];
 
 const SUBCATEGORIES: Record<string, string[]> = {
+  'Battery': ['Lithium', 'Alkaline', 'NiMH', 'LiPo', 'Coin Cell', 'Lead Acid'],
   'Sensors': ['Temperature', 'Pressure', 'Motion', 'Light', 'Gas', 'Magnetic', 'Sound', 'Distance'],
   'Motors': ['Servo', 'Stepper', 'DC Motor', 'Brushless'],
   'Passive Components': ['Resistors', 'Capacitors', 'Inductors', 'Diodes', 'LEDs'],
@@ -43,6 +49,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
     category: '',
     subcategory: '',
     tags: [] as string[],
+    quantity: 0,
     minThreshold: 0,
     locationId: '',
     status: 'available' as Component['status'],
@@ -52,7 +59,11 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
     current: { value: 0, unit: 'mA' as const } as Component['current'],
     pinCount: 0,
     protocols: [] as string[],
-    packageType: ''
+    packageType: '',
+    unitCost: 0,
+    totalCost: 0,
+    imageUrl: '',
+    supplier: ''
   });
 
   const [locations, setLocations] = useState<StorageLocation[]>([]);
@@ -68,6 +79,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
         category: component.category || '',
         subcategory: component.subcategory || '',
         tags: component.tags || [],
+        quantity: component.quantity || 0,
         minThreshold: component.minThreshold || 0,
         locationId: component.locationId || '',
         status: component.status || 'available',
@@ -77,7 +89,11 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
         current: component.current || { value: 0, unit: 'mA' as const } as Component['current'],
         pinCount: component.pinCount || 0,
         protocols: component.protocols || [],
-        packageType: component.packageType || ''
+        packageType: component.packageType || '',
+        unitCost: component.unitCost || 0,
+        totalCost: component.totalCost || 0,
+        imageUrl: component.imageUrl || '',
+        supplier: component.supplier || ''
       });
     }
     loadLocations();
@@ -106,6 +122,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Form submission started');
     
     try {
       const submitData = {
@@ -120,6 +137,8 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
         : '/api/components';
       
       const method = component ? 'PUT' : 'POST';
+      
+      console.log(`Submitting to ${url} with method ${method}`, submitData);
       
       const response = await fetch(url, {
         method,
@@ -271,6 +290,12 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
             maxTags={10}
           />
 
+          <PhotoUpload
+            label="Component Photo"
+            photoUrl={formData.imageUrl}
+            onPhotoChange={(photoUrl) => setFormData({ ...formData, imageUrl: photoUrl || '' })}
+          />
+
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Storage Location</label>
@@ -297,6 +322,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
                 onChange={(e) => setFormData({ ...formData, status: e.target.value as Component['status'] })}
               >
                 <option value="available">Available</option>
+                <option value="on_order">On Order</option>
                 <option value="in_use">In Use</option>
                 <option value="reserved">Reserved</option>
                 <option value="needs_testing">Needs Testing</option>
@@ -307,6 +333,15 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
 
           <div className="form-row">
             <div className="form-group">
+              <label className="form-label">Quantity</label>
+              <input
+                type="number"
+                className="form-input"
+                value={formData.quantity}
+                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="form-group">
               <label className="form-label">Min Threshold</label>
               <input
                 type="number"
@@ -315,6 +350,29 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
                 onChange={(e) => setFormData({ ...formData, minThreshold: parseInt(e.target.value) || 0 })}
               />
               <small className="form-help">Alert when quantity falls below this number</small>
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Unit Cost ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                className="form-input"
+                value={formData.unitCost}
+                onChange={(e) => setFormData({ ...formData, unitCost: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Supplier</label>
+              <input
+                type="text"
+                className="form-input"
+                value={formData.supplier}
+                onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+                placeholder="e.g., Digikey, Mouser, AliExpress"
+              />
             </div>
           </div>
 

@@ -138,6 +138,7 @@ export function AdvancedSearch({
               >
                 <option value="">All Statuses</option>
                 <option value="available">Available</option>
+                <option value="on_order">On Order</option>
                 <option value="in_use">In Use</option>
                 <option value="reserved">Reserved</option>
                 <option value="needs_testing">Needs Testing</option>

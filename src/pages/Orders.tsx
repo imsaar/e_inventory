@@ -408,9 +408,9 @@ export function Orders() {
                                 }}
                               />
                             )}
-                            <span className="item-info">
+                            <span className="item-info" title={item.name}>
                               {item.quantity}× {viewMode === 'list' ? 
-                                (item.name.length > 80 ? `${item.name.substring(0, 80)}...` : item.name) : 
+                                (item.name.length > 50 ? `${item.name.substring(0, 50)}...` : item.name) : 
                                 item.name
                               }
                             </span>

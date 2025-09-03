@@ -51,7 +51,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
       const orderData = await response.json();
       
       setFormData({
-        orderDate: orderData.orderDate,
+        orderDate: orderData.orderDate ? new Date(orderData.orderDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         supplier: orderData.supplier || '',
         orderNumber: orderData.orderNumber || '',
         notes: orderData.notes || '',
@@ -184,8 +184,11 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
         }))
       };
 
-      const response = await fetch('/api/orders', {
-        method: 'POST',
+      const url = order ? `/api/orders/${order.id}` : '/api/orders';
+      const method = order ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -194,13 +197,13 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create order');
+        throw new Error(errorData.error || `Failed to ${order ? 'update' : 'create'} order`);
       }
 
       onSave();
     } catch (error) {
       console.error('Error creating order:', error);
-      alert('Failed to create order. Please try again.');
+      alert(`Failed to ${order ? 'update' : 'create'} order. Please try again.`);
     } finally {
       setLoading(false);
     }
@@ -208,7 +211,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
 
   return (
     <div className="modal-backdrop">
-      <div className="modal modal-large">
+      <div className="modal modal-large" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h2>{order ? 'Edit Order' : 'Create New Order'}</h2>
           <button className="btn-icon" onClick={onCancel}>
@@ -216,8 +219,8 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
             <div className="form-grid">
               <div className="form-group">
                 <label htmlFor="orderDate">Order Date *</label>
@@ -390,7 +393,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
             </div>
           </div>
 
-          <div className="modal-footer">
+          <div className="modal-footer" style={{ flexShrink: 0 }}>
             <button type="button" className="btn btn-secondary" onClick={onCancel}>
               Cancel
             </button>

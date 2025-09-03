@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -523,6 +523,66 @@ function runMigrations() {
       throw error;
     }
   }
+
+  // Migration to version 8: Add missing component columns
+  if (currentVersion < 8) {
+    console.log('Running migration to version 8: Adding missing component columns');
+    try {
+      // Check which columns exist
+      const columns = db.prepare("PRAGMA table_info(components)").all();
+      const columnNames = columns.map((col: any) => col.name);
+
+      // Add missing columns to components table (only if they don't exist)
+      if (!columnNames.includes('dimensions')) {
+        db.exec(`ALTER TABLE components ADD COLUMN dimensions TEXT DEFAULT NULL`);
+      } else {
+        console.log('dimensions column already exists in components');
+      }
+      
+      if (!columnNames.includes('weight')) {
+        db.exec(`ALTER TABLE components ADD COLUMN weight TEXT DEFAULT NULL`);
+      } else {
+        console.log('weight column already exists in components');
+      }
+      
+      if (!columnNames.includes('voltage')) {
+        db.exec(`ALTER TABLE components ADD COLUMN voltage TEXT DEFAULT NULL`);
+      } else {
+        console.log('voltage column already exists in components');
+      }
+      
+      if (!columnNames.includes('current')) {
+        db.exec(`ALTER TABLE components ADD COLUMN current TEXT DEFAULT NULL`);
+      } else {
+        console.log('current column already exists in components');
+      }
+      
+      if (!columnNames.includes('pin_count')) {
+        db.exec(`ALTER TABLE components ADD COLUMN pin_count INTEGER DEFAULT NULL`);
+      } else {
+        console.log('pin_count column already exists in components');
+      }
+      
+      if (!columnNames.includes('protocols')) {
+        db.exec(`ALTER TABLE components ADD COLUMN protocols TEXT DEFAULT NULL`);
+      } else {
+        console.log('protocols column already exists in components');
+      }
+      
+      if (!columnNames.includes('supplier')) {
+        db.exec(`ALTER TABLE components ADD COLUMN supplier TEXT DEFAULT NULL`);
+      } else {
+        console.log('supplier column already exists in components');
+      }
+
+      // Update schema version
+      db.exec(`INSERT INTO schema_version (version) VALUES (8)`);
+      console.log('Migration to version 8 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 8 failed:', error);
+      throw error;
+    }
+  }
 }
 
 // Helper function to add component history entry
@@ -536,11 +596,11 @@ export function addComponentHistory(
   notes?: string
 ) {
   const stmt = db.prepare(`
-    INSERT INTO component_history (id, component_id, action, previous_value, new_value, quantity, project_id, notes, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO component_history (id, component_id, action, old_quantity, new_quantity, notes, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `);
   
-  stmt.run(uuidv4(), componentId, action, previousValue, newValue, quantity, projectId, notes);
+  stmt.run(uuidv4(), componentId, action, quantity, quantity, notes);
 }
 
 // Database utility functions for testing

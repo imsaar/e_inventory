@@ -403,15 +403,21 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
                       </div>
                       <div className="component-metrics">
                         <div className="quantity-breakdown">
-                          <span className={`quantity-badge available ${component.quantity <= (component.minThreshold || 0) && component.minThreshold ? 'low-stock' : ''}`}>
-                            {component.quantity} available
-                          </span>
+                          {component.quantity > 0 ? (
+                            <span className={`quantity-badge available ${component.quantity <= (component.minThreshold || 0) && component.minThreshold ? 'low-stock' : ''}`}>
+                              {component.quantity} available
+                            </span>
+                          ) : (
+                            <span className="quantity-badge not-available">
+                              Not Available
+                            </span>
+                          )}
                           {component.onOrderQuantity && component.onOrderQuantity > 0 && (
                             <span className="quantity-badge on-order">
                               +{component.onOrderQuantity} pending
                             </span>
                           )}
-                          {component.minThreshold && component.quantity <= component.minThreshold && (
+                          {component.minThreshold && component.quantity <= component.minThreshold && component.quantity > 0 && (
                             <span className="low-stock-warning">⚠️ Low</span>
                           )}
                         </div>

@@ -32,28 +32,28 @@ export const schemas = {
     datasheet: z.string().url('Invalid datasheet URL').optional().or(z.literal('')),
     quantity: z.number().int().min(0, 'Quantity cannot be negative').max(1000000, 'Quantity too large'),
     minThreshold: z.number().int().min(0, 'Min threshold cannot be negative').max(1000000, 'Min threshold too large').optional(),
-    status: z.enum(['available', 'in_use', 'reserved', 'needs_testing', 'defective']).optional(),
+    status: z.enum(['available', 'on_order', 'in_use', 'reserved', 'needs_testing', 'defective']).optional(),
     notes: z.string().max(2000, 'Notes too long').optional().or(z.literal('')),
     tags: z.array(z.string().max(50, 'Tag too long')).max(10, 'Too many tags').optional(),
     unitCost: z.number().min(0, 'Unit cost cannot be negative').max(1000000, 'Unit cost too large').optional(),
     totalCost: z.number().min(0, 'Total cost cannot be negative').max(1000000, 'Total cost too large').optional(),
-    supplier: z.string().max(100, 'Supplier name too long').optional().or(z.literal('')),
     locationId: z.string().regex(/^[a-fA-F0-9]{32}$|^[a-fA-F0-9-]{36}$/, 'Invalid location ID').optional().or(z.literal('')),
     datasheetUrl: z.string().url('Invalid datasheet URL').optional().or(z.literal('')),
-    purchaseDate: z.string().optional().or(z.literal('')),
+    packageType: z.string().optional().or(z.literal('')),
+    imageUrl: z.string().max(500, 'Image URL too long').optional().or(z.literal('')),
+    supplier: z.string().max(100, 'Supplier name too long').optional().or(z.literal('')),
     voltage: z.object({
       min: z.number().optional(),
       max: z.number().optional(),
       nominal: z.number().optional(),
-      unit: z.enum(['V', 'mV'])
+      unit: z.string().optional()
     }).optional(),
     current: z.object({
-      value: z.number(),
-      unit: z.enum(['A', 'mA', 'µA'])
+      value: z.number().optional(),
+      unit: z.string().optional()
     }).optional(),
-    pinCount: z.number().int().optional(),
-    protocols: z.array(z.string()).optional(),
-    packageType: z.string().optional().or(z.literal(''))
+    pinCount: z.number().int().min(0, 'Pin count cannot be negative').optional(),
+    protocols: z.array(z.string().max(50, 'Protocol name too long')).max(20, 'Too many protocols').optional()
   }),
 
   // Location validation  
@@ -127,6 +127,9 @@ export function validateSchema(schema: z.ZodSchema) {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
+        console.log('Validation failed for request body:', JSON.stringify(req.body, null, 2));
+        console.log('Validation errors:', error.issues);
+        
         const validationErrors: ValidationError[] = error.issues.map((err: any) => ({
           field: err.path.join('.'),
           message: err.message

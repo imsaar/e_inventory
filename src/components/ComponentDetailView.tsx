@@ -103,6 +103,7 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'available': return 'status-available';
+      case 'on_order': return 'status-on-order';
       case 'in_use': return 'status-in-use';
       case 'reserved': return 'status-reserved';
       case 'needs_testing': return 'status-needs-testing';
@@ -220,7 +221,7 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
                 <h3><Package size={20} /> Product Image</h3>
                 <div className="component-detail-image">
                   <img 
-                    src={`/uploads/${component.imageUrl}`} 
+                    src={component.imageUrl.startsWith('/uploads/') ? component.imageUrl : `/uploads/${component.imageUrl}`} 
                     alt={component.name}
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
@@ -262,17 +263,12 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
                   <label>Quantity</label>
                   <div className="detail-value">
                     <div className="quantity-breakdown-detail">
-                      <span className={`quantity-badge available ${component.quantity <= (component.minThreshold || 0) && component.minThreshold ? 'low-stock' : ''}`}>
-                        {component.quantity} available
+                      <span className={`quantity-badge ${component.quantity <= (component.minThreshold || 0) && component.minThreshold ? 'low-stock' : ''}`}>
+                        {component.quantity}
                       </span>
                       {component.onOrderQuantity && component.onOrderQuantity > 0 && (
                         <span className="quantity-badge on-order">
                           +{component.onOrderQuantity} pending
-                        </span>
-                      )}
-                      {component.totalQuantity && component.totalQuantity > component.quantity && (
-                        <span className="quantity-total">
-                          = {component.totalQuantity} total
                         </span>
                       )}
                     </div>
@@ -583,8 +579,17 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
               <h3>Summary</h3>
               <div className="stats-grid">
                 <div className="stat-item">
-                  <div className="stat-value">{component.quantity}</div>
-                  <div className="stat-label">Available</div>
+                  {component.quantity > 0 ? (
+                    <>
+                      <div className="stat-value">{component.quantity}</div>
+                      <div className="stat-label">Quantity</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="stat-value not-available">Not Available</div>
+                      <div className="stat-label">Status</div>
+                    </>
+                  )}
                 </div>
                 {component.onOrderQuantity && component.onOrderQuantity > 0 && (
                   <div className="stat-item">

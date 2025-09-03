@@ -42,7 +42,7 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
           {component.imageUrl && (
             <div className="list-thumbnail">
               <img 
-                src={`/uploads/${component.imageUrl}`} 
+                src={component.imageUrl.startsWith('/uploads/') ? component.imageUrl : `/uploads/${component.imageUrl}`} 
                 alt={component.name}
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = 'none';
@@ -70,10 +70,20 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
           
           <div className="list-quantity">
             <div className="quantity-breakdown">
-              <span className={`quantity-badge available ${getQuantityClass(component.quantity, component.minThreshold)}`}>
-                {component.quantity} avail
-              </span>
-              {component.onOrderQuantity && component.onOrderQuantity > 0 && (
+              {component.quantity > 0 ? (
+                <span className={`quantity-badge ${getQuantityClass(component.quantity, component.minThreshold)}`}>
+                  {component.quantity}
+                </span>
+              ) : component.onOrderQuantity && component.onOrderQuantity > 0 ? (
+                <span className="quantity-badge on-order">
+                  {component.onOrderQuantity} pending
+                </span>
+              ) : (
+                <span className="quantity-badge not-available">
+                  Not Available
+                </span>
+              )}
+              {component.quantity > 0 && component.onOrderQuantity && component.onOrderQuantity > 0 && (
                 <span className="quantity-badge on-order">
                   +{component.onOrderQuantity} pending
                 </span>
@@ -146,7 +156,7 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
       {component.imageUrl && (
         <div className="component-image">
           <img 
-            src={`/uploads/${component.imageUrl}`} 
+            src={component.imageUrl.startsWith('/uploads/') ? component.imageUrl : `/uploads/${component.imageUrl}`} 
             alt={component.name}
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none';
@@ -200,10 +210,20 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
       <div className="component-footer">
         <div className="quantity-info">
           <div className="quantity-breakdown">
-            <span className={`quantity-badge available ${getQuantityClass(component.quantity, component.minThreshold)}`}>
-              {component.quantity} available
-            </span>
-            {component.onOrderQuantity && component.onOrderQuantity > 0 && (
+            {component.quantity > 0 ? (
+              <span className={`quantity-badge ${getQuantityClass(component.quantity, component.minThreshold)}`}>
+                {component.quantity}
+              </span>
+            ) : component.onOrderQuantity && component.onOrderQuantity > 0 ? (
+              <span className="quantity-badge on-order">
+                {component.onOrderQuantity} pending
+              </span>
+            ) : (
+              <span className="quantity-badge not-available">
+                Not Available
+              </span>
+            )}
+            {component.quantity > 0 && component.onOrderQuantity && component.onOrderQuantity > 0 && (
               <span className="quantity-badge on-order">
                 +{component.onOrderQuantity} pending
               </span>
