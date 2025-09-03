@@ -82,15 +82,23 @@ export const corsOptions = {
 export const securityLogger = (req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
   
-  // Log potentially suspicious requests
+  // Log potentially suspicious requests with refined patterns
   const suspiciousPatterns = [
     /[<>'"]/,  // Potential XSS
-    /union|select|insert|update|delete|drop|create|alter/i, // SQL keywords
+    /\b(union|select|insert|update|delete|drop|create|alter)\b/i, // SQL keywords (word boundaries)
     /\.\.|\/\.\./,  // Path traversal
-    /%[0-9a-f]{2}/i  // URL encoding
+    /%[0-9a-f]{2}%[0-9a-f]{2}/i  // Multiple URL encoding (more suspicious than single)
   ];
   
-  const isSuspicious = suspiciousPatterns.some(pattern => 
+  // Skip security logging for legitimate API search requests
+  const isLegitimateSearchRequest = req.path.startsWith('/api/components') && 
+    req.method === 'GET' && 
+    req.query.term && 
+    typeof req.query.term === 'string' &&
+    req.query.term.length >= 1 && 
+    req.query.term.length <= 50;
+  
+  const isSuspicious = !isLegitimateSearchRequest && suspiciousPatterns.some(pattern => 
     pattern.test(req.url) || 
     pattern.test(JSON.stringify(req.body || {})) ||
     pattern.test(JSON.stringify(req.query || {}))
