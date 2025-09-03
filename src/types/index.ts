@@ -36,7 +36,9 @@ export interface Component {
   protocols: string[];
   
   // Purchase and inventory
-  quantity: number;
+  quantity: number; // Available quantity (delivered orders only)
+  onOrderQuantity?: number; // Quantity from pending/shipped orders
+  totalQuantity?: number; // Total quantity from all orders
   minThreshold: number;
   supplier?: string;
   purchaseDate?: string;

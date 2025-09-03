@@ -16,7 +16,9 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
     SELECT 
       oi.component_id,
       COUNT(DISTINCT o.id) as order_count,
-      SUM(CASE WHEN o.status = 'delivered' THEN oi.quantity ELSE 0 END) as total_quantity,
+      SUM(CASE WHEN o.status = 'delivered' THEN oi.quantity ELSE 0 END) as available_quantity,
+      SUM(CASE WHEN o.status IN ('pending', 'ordered', 'shipped') THEN oi.quantity ELSE 0 END) as on_order_quantity,
+      SUM(oi.quantity) as total_quantity,
       AVG(CASE WHEN o.status = 'delivered' THEN oi.unit_cost ELSE NULL END) as average_unit_cost,
       SUM(CASE WHEN o.status = 'delivered' THEN oi.total_cost ELSE 0 END) as total_value,
       MAX(CASE WHEN o.status = 'delivered' THEN o.order_date ELSE NULL END) as last_order_date
@@ -30,7 +32,9 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
   for (const cost of costs) {
     costsMap.set(cost.component_id, {
       orderCount: cost.order_count,
-      totalQuantity: cost.total_quantity,
+      availableQuantity: cost.available_quantity || 0,
+      onOrderQuantity: cost.on_order_quantity || 0,
+      totalQuantity: cost.total_quantity || 0,
       averageUnitCost: cost.average_unit_cost,
       totalValue: cost.total_value,
       lastOrderDate: cost.last_order_date
@@ -47,10 +51,12 @@ const mapComponentRow = (row: any, calculatedCosts?: any): Component => ({
   packageType: row.package_type,
   pinCount: row.pin_count,
   minThreshold: row.min_threshold,
-  // Use calculated costs from orders instead of deprecated fields
+  // Use calculated costs and quantities from orders instead of deprecated fields
   unitCost: calculatedCosts?.averageUnitCost || undefined,
   totalCost: calculatedCosts?.totalValue || undefined,
-  quantity: calculatedCosts?.totalQuantity || row.quantity || 0, // Use calculated quantity from orders
+  quantity: calculatedCosts?.availableQuantity || row.quantity || 0, // Available quantity (delivered orders only)
+  onOrderQuantity: calculatedCosts?.onOrderQuantity || 0, // Pending/shipped orders
+  totalQuantity: calculatedCosts?.totalQuantity || calculatedCosts?.availableQuantity || row.quantity || 0, // All orders
   locationId: row.location_id,
   datasheetUrl: row.datasheet_url,
   imageUrl: row.image_url,

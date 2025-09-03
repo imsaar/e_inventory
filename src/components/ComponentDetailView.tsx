@@ -261,14 +261,26 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
                 <div className="detail-item">
                   <label>Quantity</label>
                   <div className="detail-value">
-                    <span className="quantity-display">
-                      {component.quantity}
-                      {component.minThreshold && (
-                        <span className={`threshold-indicator ${component.quantity <= component.minThreshold ? 'low-stock' : ''}`}>
-                          Min: {component.minThreshold}
+                    <div className="quantity-breakdown-detail">
+                      <span className={`quantity-badge available ${component.quantity <= (component.minThreshold || 0) && component.minThreshold ? 'low-stock' : ''}`}>
+                        {component.quantity} available
+                      </span>
+                      {component.onOrderQuantity && component.onOrderQuantity > 0 && (
+                        <span className="quantity-badge on-order">
+                          +{component.onOrderQuantity} pending
                         </span>
                       )}
-                    </span>
+                      {component.totalQuantity && component.totalQuantity > component.quantity && (
+                        <span className="quantity-total">
+                          = {component.totalQuantity} total
+                        </span>
+                      )}
+                    </div>
+                    {component.minThreshold && (
+                      <span className={`threshold-indicator ${component.quantity <= component.minThreshold ? 'low-stock' : ''}`}>
+                        Min: {component.minThreshold}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -572,8 +584,14 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
               <div className="stats-grid">
                 <div className="stat-item">
                   <div className="stat-value">{component.quantity}</div>
-                  <div className="stat-label">In Stock</div>
+                  <div className="stat-label">Available</div>
                 </div>
+                {component.onOrderQuantity && component.onOrderQuantity > 0 && (
+                  <div className="stat-item">
+                    <div className="stat-value on-order-stat">{component.onOrderQuantity}</div>
+                    <div className="stat-label">On Order</div>
+                  </div>
+                )}
                 {component.unitCost && (
                   <div className="stat-item">
                     <div className="stat-value">{formatCurrency(component.unitCost)}</div>

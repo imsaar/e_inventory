@@ -5421,3 +5421,68 @@ label.btn {
     justify-content: space-between;
   }
 }
+
+/* Quantity Breakdown Styles */
+.quantity-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.quantity-breakdown-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.quantity-badge.available {
+  background: var(--success-color);
+  color: white;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quantity-badge.on-order {
+  background: var(--warning-color);
+  color: white;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quantity-total {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: var(--spacing-xs);
+}
+
+.on-order-stat {
+  color: var(--warning-color) !important;
+}
+
+/* Update existing quantity badge styles */
+.quantity-badge.low-stock {
+  background: var(--danger-color);
+}
+
+/* List view quantity adjustments */
+.list-quantity .quantity-breakdown {
+  justify-content: flex-end;
+}
+
+.list-quantity .quantity-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+/* Grid view quantity adjustments */
+.component-footer .quantity-breakdown {
+  margin-bottom: var(--spacing-xs);
+}

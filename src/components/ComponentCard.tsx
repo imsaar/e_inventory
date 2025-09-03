@@ -69,9 +69,16 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
           </div>
           
           <div className="list-quantity">
-            <span className={`quantity-badge ${getQuantityClass(component.quantity, component.minThreshold)}`}>
-              {component.quantity}
-            </span>
+            <div className="quantity-breakdown">
+              <span className={`quantity-badge available ${getQuantityClass(component.quantity, component.minThreshold)}`}>
+                {component.quantity} avail
+              </span>
+              {component.onOrderQuantity && component.onOrderQuantity > 0 && (
+                <span className="quantity-badge on-order">
+                  +{component.onOrderQuantity} pending
+                </span>
+              )}
+            </div>
           </div>
           
           <div className="list-actions">
@@ -192,9 +199,16 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
 
       <div className="component-footer">
         <div className="quantity-info">
-          <span className={`quantity-badge ${getQuantityClass(component.quantity, component.minThreshold)}`}>
-            {component.quantity} units
-          </span>
+          <div className="quantity-breakdown">
+            <span className={`quantity-badge available ${getQuantityClass(component.quantity, component.minThreshold)}`}>
+              {component.quantity} available
+            </span>
+            {component.onOrderQuantity && component.onOrderQuantity > 0 && (
+              <span className="quantity-badge on-order">
+                +{component.onOrderQuantity} pending
+              </span>
+            )}
+          </div>
           {component.minThreshold > 0 && (
             <span className="min-threshold">Min: {component.minThreshold}</span>
           )}
