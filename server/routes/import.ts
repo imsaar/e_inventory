@@ -9,6 +9,8 @@ import { validateImportRequest } from '../middleware/validation';
 
 const router = express.Router();
 
+// Request logging removed for production
+
 // Get database instance - support dependency injection for testing
 function getDb(req: express.Request) {
   return (req.app.get('db') as any) || defaultDb;
@@ -268,7 +270,6 @@ router.post('/aliexpress/import', async (req, res) => {
             try {
               let componentId: string | null = null;
 
-              // Check if we should create/update component
               if (item.parsedComponent && importOptions?.createComponents !== false) {
                 componentId = await createOrUpdateComponent(db, item, importOptions);
                 if (componentId) {
@@ -332,6 +333,9 @@ router.post('/aliexpress/import', async (req, res) => {
       db.exec('COMMIT');
 
       console.log(`Import completed: ${results.imported} orders imported, ${results.skipped} skipped`);
+      console.log(`Components created: ${results.componentIds.length}`);
+      console.log(`Component IDs:`, results.componentIds);
+      console.log(`Errors:`, results.errors);
 
       res.json({
         success: true,
@@ -385,7 +389,9 @@ router.get('/history', (req, res) => {
 // Helper functions
 
 async function createOrUpdateComponent(db: any, item: any, options: any): Promise<string | null> {
-  if (!item.parsedComponent) return null;
+  if (!item.parsedComponent) {
+    return null;
+  }
 
   const component = item.parsedComponent;
   
@@ -422,39 +428,35 @@ async function createOrUpdateComponent(db: any, item: any, options: any): Promis
     return componentId;
   } else {
     // Create new component
-    db.prepare(`
-      INSERT INTO components (
-        id, name, part_number, manufacturer, description, category, subcategory,
-        tags, package_type, voltage, current, pin_count, protocols,
-        quantity, min_threshold, image_url, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      componentId,
-      component.name,
-      component.partNumber || null,
-      component.manufacturer || null,
-      component.description || null,
-      component.category,
-      component.subcategory || null,
-      JSON.stringify(component.tags),
-      component.packageType || null,
-      component.voltage ? JSON.stringify(component.voltage) : null,
-      component.current ? JSON.stringify(component.current) : null,
-      component.pinCount || null,
-      JSON.stringify(component.protocols),
-      item.quantity || 0, // Set quantity to the order quantity
-      0, // Default minimum threshold to 0 (no threshold)
-      item.localImagePath || item.imageUrl || null,
-      'available',
-      now,
-      now
-    );
-    
-    return componentId;
+    try {
+      const result = db.prepare(`
+        INSERT INTO components (
+          id, name, description, category, quantity, min_threshold, 
+          image_url, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        componentId,
+        component.name,
+        component.description || null,
+        component.category || 'Electronic Component',
+        item.quantity || 0,
+        0,
+        item.localImagePath || item.imageUrl || null,
+        'available',
+        now,
+        now
+      );
+      
+      return componentId;
+    } catch (error) {
+      console.error('Error inserting component:', error);
+      return null;
+    }
   }
 }
 
-function mapOrderStatus(aliExpressStatus: string): string {
+function mapOrderStatus(aliExpressStatus: string | undefined): string {
+  if (!aliExpressStatus) return 'ordered';
   const status = aliExpressStatus.toLowerCase();
   if (status.includes('delivered') || status.includes('received')) return 'delivered';
   if (status.includes('shipped') || status.includes('transit')) return 'shipped';

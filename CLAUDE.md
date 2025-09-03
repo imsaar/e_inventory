@@ -19,7 +19,7 @@ npm run server     # Backend API server only (Express + nodemon with ts-node)
 # Code Quality
 npm run lint       # ESLint code analysis
 npm run typecheck  # TypeScript type checking
-npm run build      # Production build
+npm run build      # Production build (TSC + Vite)
 
 # Testing
 npm test           # Run all tests (16 test suites, 230+ tests)
@@ -30,6 +30,12 @@ npm run test:coverage # Run tests with coverage
 npm test -- --testPathPattern=aliexpress-import  # AliExpress import tests
 npm test qr-generation.test.ts                   # QR code functionality
 npm test photo-management.test.ts                # Photo upload tests
+npm test location-detail-view.test.ts            # Detail view tests
+npm test qr-code-size.test.ts                    # QR code size tests
+
+# Database Development
+# Database files: data/inventory.db (dev), data/inventory-test-*.db (test)
+sqlite3 data/inventory.db                        # Direct database access
 ```
 
 ## Architecture Overview
@@ -85,6 +91,7 @@ Complete HTML parsing and import workflow:
 - **Components**: Reusable UI with bulk operations and AliExpress import interface
 - **Types**: Comprehensive TypeScript definitions for all entities
 - **Routing**: React Router with public access (no auth guards)
+- **Hooks**: Custom dashboard refresh system with pause/resume for import operations
 
 ## Critical Implementation Details
 
@@ -128,11 +135,24 @@ All bulk operations include:
 - **SQL Pattern**: Use `GROUP_CONCAT(column, ', ')` not `GROUP_CONCAT(column, ", ")` (SQLite syntax)
 - Transaction support for data integrity
 
+### Dashboard Refresh System
+**Real-time Stats Updates**: The dashboard automatically refreshes stats when data changes across the application:
+- **Global Hook**: `useDashboardRefresh()` provides `triggerRefresh()`, `pauseRefresh()`, `resumeRefresh()` functions
+- **Event-Driven**: Uses custom DOM events (`dashboardRefresh`) for cross-component communication
+- **Smart Suspension**: Import operations pause dashboard updates to prevent unnecessary calculations during bulk operations
+- **Auto-Resume**: Dashboard updates resume automatically when imports complete or components unmount
+
 ### File Upload Security  
 - HTML/MHTML parsing for import functionality with embedded image extraction
 - Photo upload with type validation and size limits (10MB)
 - Static serving via Express with CSP headers: `default-src 'none'; img-src 'self'`
 - Prevention of script execution in upload directories
+
+### Factory Reset System
+**Complete Data Wipe**: Secure factory reset functionality with multiple safety measures:
+- **Multi-Step Confirmation**: Requires typing "FACTORY RESET" to proceed
+- **Comprehensive Deletion**: Removes all database records and uploaded files
+- **Transaction Safety**: Uses SQLite transactions to ensure complete cleanup
 
 ## Testing Architecture
 
@@ -168,6 +188,11 @@ router.get('/:id', validateParams(['id']), (req, res) => {
 - Frontend accesses via `/uploads/imported-images/filename.png` (proxied to backend)
 - MHTML parser creates local images and returns `/uploads/` URLs for component storage
 
+**Dashboard Stats Management:**
+- Always call `triggerRefresh()` after data modifications (create, update, delete operations)
+- Use `pauseRefresh()` at start of bulk operations, `resumeRefresh()` when complete
+- Dashboard automatically listens via `useDashboardRefreshListener(callback)`
+
 **Bulk Operations:**
 - Always use `GROUP_CONCAT(column, ', ')` syntax for SQLite
 - Check dependencies before deletion: `project_components`, `order_items` tables
@@ -185,11 +210,28 @@ router.get('/:id', validateParams(['id']), (req, res) => {
 1. Check MHTML parsing logs for boundary detection issues
 2. Verify image URL mapping uses `/uploads/` not `/api/uploads/`
 3. Confirm `order-item-content-img` class parsing in HTML
+4. **Database Schema Issues**: If seeing "no column named X" errors:
+   - Check component creation SQL uses only existing columns
+   - Avoid problematic columns like `voltage` or `part_number` in INSERT statements
+   - Use simplified column set: `id, name, description, category, quantity, min_threshold, image_url, status, created_at, updated_at`
+
+**Component Creation Problems:**
+- **"Unknown Component" in orders**: Usually indicates component creation failure during import
+- Check server logs for database constraint violations or missing columns
+- Verify component classification is working (`parsedComponent` object exists)
+- Test with simplified component creation SQL
+
+**Import Process Troubleshooting:**
+1. Check if orders are created but components missing (database schema issue)
+2. Verify dashboard refresh hooks aren't interfering (should be paused during import)
+3. Monitor both frontend and backend logs during import process
+4. Test with small HTML files first to isolate parsing issues
 
 **Bulk Delete Failures:**
 1. Check SQL syntax for `GROUP_CONCAT` function
 2. Verify dependency checking logic includes all relationship tables
 3. Test with components that have project dependencies
+
 
 ## Environment Configuration
 
@@ -206,6 +248,41 @@ DATABASE_PATH=./data/inventory-dev.db
 - Configure rate limiting appropriate for expected load
 - Implement backup strategy for SQLite database
 
+## Data Management & Backup
+
+### Database Files
+- **Development**: `data/inventory-dev.db`
+- **Production**: `data/inventory.db`
+- **Testing**: `data/inventory-test-*.db` (unique per test run)
+
+### Backup System
+**Complete Data Backup**: The system includes comprehensive backup/restore functionality:
+- `GET /api/database/export` - Database only (.db file)
+- `GET /api/database/export-all` - Complete backup (database + uploads as .zip)
+- `POST /api/database/import` - Restore database from .db file
+- `POST /api/database/import-all` - Restore complete backup from .zip file
+- **Auto-backup**: System creates automatic backups before major operations like imports
+
+### Manual Database Backup
+```bash
+# Create backup
+cp data/inventory.db data/inventory-backup-$(date +%Y%m%d).db
+
+# Direct SQLite access
+sqlite3 data/inventory.db
+.tables                    # List all tables
+.schema components         # View table schema
+SELECT * FROM components LIMIT 5;  # Query data
+```
+
+### File Storage Structure
+```
+uploads/
+├── imported-images/       # AliExpress import images
+├── component-images/      # Manual component photos
+└── backups/              # System-generated backups
+```
+
 ## Import System Usage
 
 ### AliExpress HTML Import
@@ -220,3 +297,34 @@ DATABASE_PATH=./data/inventory-dev.db
 - MHTML archives with embedded images
 - Automatic component categorization based on product titles
 - Cost calculations and inventory integration
+
+### Import Flow Documentation
+**Comprehensive Technical Documentation**: See `ALIEXPRESS_IMPORT_FLOW.md` for complete import process flow diagram including:
+- 10-phase technical flow from file upload to database import
+- Real-time SSE progress updates
+- Database transaction handling and rollback scenarios
+- Component classification algorithms
+- Error handling and recovery mechanisms
+- Key data structures and database schemas
+- Performance considerations and batching strategies
+
+## UI/UX Architecture
+
+### Theme System
+**PCB Green Theme**: The application uses a professional electronics-inspired color scheme:
+- **Primary Color**: `#1B5E20` (Dark PCB Green)
+- **Accent Color**: `#2E7D32` (Medium PCB Green) 
+- **Success Color**: `#4caf50` (Light Green)
+- **CSS Variables**: All colors defined in `:root` for consistent theming
+
+### Responsive Design Patterns
+- **Grid/List Views**: Toggle between card grid and compact list layouts
+- **Icon Alignment**: All button icons use flexbox with `align-items: center` and `vertical-align: middle`
+- **Mobile Optimization**: Responsive breakpoints with text truncation and wrapping
+- **Thumbnail System**: Component images display as small thumbnails (28px) with error handling
+
+### Component Architecture Patterns
+- **Bulk Operations**: Checkbox selection with bulk action bars and confirmation dialogs
+- **Empty States**: Standardized empty state components with call-to-action buttons
+- **Status Indicators**: Color-coded status badges with consistent styling
+- **Modal Dialogs**: Overlay dialogs for forms, details, and import workflows

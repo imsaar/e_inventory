@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Upload, FileText, Package, DollarSign, Calendar, CheckCircle, AlertCircle, Eye, Settings } from 'lucide-react';
+import { useDashboardRefresh } from '../hooks/useDashboardRefresh';
 
 interface ParsedOrder {
   orderNumber: string;
@@ -46,6 +47,14 @@ interface AliExpressImportProps {
 }
 
 export function AliExpressImport({ onImportComplete, onClose }: AliExpressImportProps) {
+  // const { pauseRefresh, resumeRefresh } = useDashboardRefresh();
+  
+  // Resume refresh when component unmounts (e.g., dialog closed)
+  // useEffect(() => {
+  //   return () => {
+  //     resumeRefresh();
+  //   };
+  // }, [resumeRefresh]);
   const [file, setFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -252,8 +261,12 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
   };
 
   const performImport = async () => {
-    if (!previewData || selectedOrders.size === 0) return;
+    if (!previewData || selectedOrders.size === 0) {
+      return;
+    }
 
+    // Pause dashboard refresh during import
+    // pauseRefresh();
     setImporting(true);
     setImportProgress(null);
     
@@ -302,7 +315,7 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
             importOptions
           })
         });
-
+        
         const batchResults = await response.json();
         
         if (!response.ok) {
@@ -341,6 +354,8 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
       alert(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setImporting(false);
+      // Resume dashboard refresh after import completes
+      // resumeRefresh();
     }
   };
 
