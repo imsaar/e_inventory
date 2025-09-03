@@ -10,11 +10,7 @@ import db from '../database';
 const router = express.Router();
 
 // Apply rate limiting for database operations
-// More restrictive for export/import, but allow info requests
-router.use('/export', rateLimit(5, 60 * 60 * 1000)); // 5 exports per hour
-router.use('/export-all', rateLimit(3, 60 * 60 * 1000)); // 3 full exports per hour
-router.use('/import', rateLimit(3, 60 * 60 * 1000)); // 3 imports per hour
-router.use('/import-all', rateLimit(2, 60 * 60 * 1000)); // 2 full imports per hour
+// Only rate limit info requests to prevent abuse
 router.use('/info', rateLimit(30, 5 * 60 * 1000)); // 30 info requests per 5 minutes
 
 // Configure multer for database file uploads
@@ -150,7 +146,10 @@ router.post('/import', upload.single('database'), (req, res) => {
     
     res.json({ 
       message: 'Database imported successfully',
-      details: ['Application will restart to load the new database']
+      details: [
+        'Database has been restored successfully',
+        'IMPORTANT: Please restart both server and client to ensure all changes take effect'
+      ]
     });
     
     // Exit process to trigger nodemon restart in development
@@ -339,8 +338,8 @@ router.post('/import-all', uploadZip.single('backup'), async (req, res) => {
     res.json({ 
       message: 'Full backup imported successfully',
       details: [
-        'Database and uploads have been restored',
-        'Application will restart to load the new data'
+        'Database and uploads have been restored successfully',
+        'IMPORTANT: Please restart both server and client to ensure all changes take effect'
       ]
     });
     
