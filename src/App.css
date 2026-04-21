@@ -4102,8 +4102,25 @@ label.btn {
 .table-header,
 .table-row {
   display: grid;
-  grid-template-columns: 2fr 100px 120px 100px 80px;
+  grid-template-columns: 60px 2fr 100px 80px 100px 100px 1fr;
   gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.order-item-thumbnail {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: #f8f9fa;
+}
+
+.order-item-thumbnail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
 }
 
 .table-header {
@@ -4398,8 +4415,13 @@ label.btn {
   
   .table-header,
   .table-row {
-    grid-template-columns: 1.5fr 80px 100px 80px 60px;
+    grid-template-columns: 44px 1.5fr 80px 60px 80px 80px 1fr;
     gap: var(--spacing-xs);
+  }
+
+  .order-item-thumbnail {
+    width: 36px;
+    height: 36px;
   }
   
   .table-cell {

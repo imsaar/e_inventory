@@ -79,7 +79,7 @@ server/
 
 ### AliExpress Import System
 Complete HTML parsing and import workflow:
-- **File Upload**: Handles HTML/MHTML files from AliExpress order pages
+- **File Upload**: Handles HTML, MHTML (Chrome/Edge), and `.webarchive` (Safari) files from AliExpress order pages
 - **HTML Parsing**: Extracts order data, items, prices, and specifications
 - **Component Creation**: Auto-generates components from parsed product data
 - **Order Integration**: Creates orders with proper cost calculations and component linking
@@ -102,12 +102,17 @@ Complete HTML parsing and import workflow:
 
 The validation middleware in `server/middleware/validation.ts` handles both formats. When adding new routes that accept component IDs, ensure regex patterns include both formats.
 
-### MHTML/HTML Parsing Architecture
-The AliExpress import system consists of two main parsers:
-- **MHTMLParser** (`server/utils/mhtmlParser.ts`): Extracts embedded images and HTML from MHTML files
-- **AliExpressParser** (`server/utils/aliexpressParser.ts`): Parses order data from HTML and links to embedded images
+### MHTML / Webarchive / HTML Parsing Architecture
+The AliExpress import system has three sibling parsers feeding into one orchestrator:
+- **MHTMLParser** (`server/utils/mhtmlParser.ts`): Extracts embedded images + HTML from Chrome/Edge `.mhtml` files (MIME multipart text format)
+- **WebarchiveParser** (`server/utils/webarchiveParser.ts`): Extracts embedded images + HTML from Safari `.webarchive` files (binary plist via `bplist-parser`)
+- **AliExpressHTMLParser** (`server/utils/aliexpressParser.ts`): Detects format from the input (Buffer starting with `bplist00` → webarchive; text containing `MIME-Version` + `multipart/related` → MHTML; otherwise raw HTML), runs the right extractor, then parses order data with cheerio
 
-**Critical**: Image URLs from MHTML parsing use `/uploads/` prefix (not `/api/uploads/`) to work with Vite proxy configuration.
+**Critical**: The import route reads uploads as **Buffer** (not `utf-8`) so binary `.webarchive` files survive intact. `parseOrderHTML` accepts `string | Buffer`.
+
+**Critical**: Image URLs from MHTML/webarchive parsing use `/uploads/` prefix (not `/api/uploads/`) to work with Vite proxy configuration.
+
+**Multi-product order layout**: On AliExpress's My Orders page, single-product orders render a `.order-item-content-body` with `.order-item-content-info-name` (title), `.order-item-content-info-number` (price/qty), and `.order-item-content-img` (one image). Multi-product orders use a different layout: a single `.order-item-content-body` containing `.order-item-content-img-list > a` (one anchor per product) — **no per-item title, quantity, or unit price is rendered** (those would only appear on the order detail page). The parser detects `.order-item-content-img-list > a` count > 1 and emits one `ParsedOrderItem` per link via `parseItemsFromImgList`, with placeholder title `AliExpress item <id>`, the order total split evenly across items, and a `specifications.Note` flagging it for manual review.
 
 ### Vite Proxy Configuration
 Frontend development requires proxying both API and static file requests:

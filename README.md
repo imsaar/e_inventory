@@ -52,7 +52,7 @@ A comprehensive web-based inventory management system designed specifically for 
 
 🎨 **UI/UX Refinements (September 2025)** - List view now default for components page, reduced grid view image sizes for better content balance, added thumbnails to list view, removed disruptive alert popups from bulk operations, and improved dashboard reliability with better error handling.
 
-🚀 **AliExpress Import System (September 2025)** - Complete HTML-based order import functionality with intelligent component recognition, automatic categorization, cost tracking, and comprehensive import history. Features advanced MHTML parsing with embedded image extraction, smart URL mapping for local image storage, and component thumbnail display in both grid and list views. Supports AliExpress order page parsing with smart component tagging and real-time progress tracking.
+🚀 **AliExpress Import System (September 2025)** - Complete HTML-based order import functionality with intelligent component recognition, automatic categorization, cost tracking, and comprehensive import history. Features advanced MHTML parsing with embedded image extraction, smart URL mapping for local image storage, and component thumbnail display in both grid and list views. Supports AliExpress order page parsing with smart component tagging and real-time progress tracking. Now also accepts Safari `.webarchive` exports of the My Orders page (binary plist parsing, embedded images extracted automatically).
 
 🔓 **Authentication Removal (September 2025)** - Streamlined system for development and testing by removing authentication requirements from all endpoints. All API routes are now publicly accessible while maintaining core security features like rate limiting and input validation.
 
@@ -284,11 +284,19 @@ npm run build            # Production build
 ## Usage Examples
 
 ### AliExpress Import Workflow
-1. Go to Orders page and click "Import from AliExpress"
-2. Upload your AliExpress order HTML file (saved from browser)
-3. Review parsed order data with automatic component recognition
-4. Confirm import to create orders and components automatically
-5. Check import history for tracking and statistics
+1. Go to AliExpress → Account → My Orders and scroll to load all orders you want to import
+2. Save the page in one of these formats:
+   - **Chrome/Edge:** Right-click → "Save As" → "Webpage, Single File" (`.mhtml`)
+   - **Safari:** File → Save As → Format "Web Archive" (`.webarchive`)
+   - **Firefox / fallback:** Right-click → "Save As" → "Webpage, Complete" (`.html` + folder)
+3. In the app, go to Orders → "Import from AliExpress" and upload the saved file (50 MB max)
+4. Review parsed order data with automatic component recognition
+5. Confirm import to create orders and components automatically
+6. Check import history for tracking and statistics
+
+> Both `.mhtml` and `.webarchive` bundle product images into the file itself, so no external image fetching is needed during import.
+>
+> **Multi-product orders:** AliExpress collapses orders containing more than one product to a thumbnail strip on the My Orders page — per-item titles, quantities, and unit prices are not rendered there. The importer creates one item per thumbnail with a placeholder title (`AliExpress item <product-id>`) and an even split of the order total; review and edit these in the order detail view after import.
 
 ### Adding Components
 1. Navigate to the Components page

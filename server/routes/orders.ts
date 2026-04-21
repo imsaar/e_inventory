@@ -62,7 +62,11 @@ const mapOrderItemRow = (row: any) => ({
   quantity: row.quantity,
   unitCost: row.unit_cost,
   totalCost: row.total_cost,
-  notes: row.notes
+  notes: row.notes,
+  productTitle: row.product_title,
+  productUrl: row.product_url,
+  imageUrl: row.image_url,
+  localImagePath: row.local_image_path
 });
 
 // GET /api/orders - List all orders with search/filter support
@@ -206,7 +210,7 @@ router.get('/:id', (req, res) => {
     }
 
     const items = db.prepare(`
-      SELECT oi.*, c.name as component_name, c.part_number
+      SELECT oi.*, c.name as component_name, c.part_number, c.image_url as component_image_url
       FROM order_items oi
       LEFT JOIN components c ON oi.component_id = c.id
       WHERE oi.order_id = ?
@@ -218,7 +222,8 @@ router.get('/:id', (req, res) => {
       items: items.map((item: any) => ({
         ...mapOrderItemRow(item),
         componentName: item.component_name,
-        componentPartNumber: item.part_number
+        componentPartNumber: item.part_number,
+        componentImageUrl: item.component_image_url
       }))
     };
 

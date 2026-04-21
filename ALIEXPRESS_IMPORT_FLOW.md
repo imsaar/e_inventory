@@ -8,12 +8,12 @@
 └─────────────────────────────────────────────────────────────────────────────┘
 
 1. File Upload Phase
-┌──────────────┐    ┌─────────────────┐    ┌─────────────────────────────────────┐
-│ User selects │────│ HTML/MHTML file │────│ File validation:                   │
-│ file         │    │ via input       │    │ - Max 50MB size                     │
-└──────────────┘    └─────────────────┘    │ - .html/.mhtml/.mht extensions      │
-                                           │ - MIME type checking                │
-                                           └─────────────────────────────────────┘
+┌──────────────┐    ┌──────────────────────┐    ┌─────────────────────────────────────────┐
+│ User selects │────│ HTML / MHTML /       │────│ File validation:                        │
+│ file         │    │ Safari .webarchive   │    │ - Max 50MB size                         │
+└──────────────┘    │ via input or drop    │    │ - .html/.mhtml/.mht/.webarchive ext     │
+                    └──────────────────────┘    │ - MIME type checking                    │
+                                                └─────────────────────────────────────────┘
                                                             │
                                                             ▼
 2. Preview & Parsing Phase (SSE Connection)
@@ -29,34 +29,50 @@
 └─────────────────────────────────────────────────────────────────────────────┘
 
 3. File Processing (server/routes/import.ts)
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────────────┐
-│ Multer          │────│ File stored in   │────│ Read file content as UTF-8   │
-│ middleware      │    │ ./uploads/imports│    │                             │
-│ - Storage conf  │    │ with timestamp   │    │                             │
-│ - Size limits   │    │ prefix           │    │                             │
-└─────────────────┘    └──────────────────┘    └─────────────────────────────┘
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────────────────────┐
+│ Multer          │────│ File stored in   │────│ Read file as Buffer (binary-safe).  │
+│ middleware      │    │ ./uploads/imports│    │ Parser detects format from magic    │
+│ - Storage conf  │    │ with timestamp   │    │ bytes / headers and decodes text    │
+│ - Size limits   │    │ prefix           │    │ formats as UTF-8.                   │
+└─────────────────┘    └──────────────────┘    └─────────────────────────────────────┘
                                                             │
                                                             ▼
 4. HTML Parsing Engine (server/utils/aliexpressParser.ts)
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ AliExpressHTMLParser Class                                                   │
 │                                                                             │
-│ constructor(imageDir: string, progressCallback?: Function)                  │
+│ constructor(imageDir, progressCallback?)                                    │
 │ ├── Sets up image storage directory                                         │
 │ ├── Initializes progress tracking                                           │
-│ └── Creates component classification system                                 │
+│ ├── Creates component classification system                                 │
+│ ├── Holds an MHTMLParser (for Chrome .mhtml)                                │
+│ └── Holds a WebarchiveParser (for Safari .webarchive)                       │
 │                                                                             │
-│ parseOrderHTML(htmlContent: string): Promise<ParsedOrder[]>                 │
-│ ├── Load HTML with cheerio ($)                                              │
+│ parseOrderHTML(content: string | Buffer): Promise<ParsedOrder[]>            │
+│ ├── Format detection:                                                       │
+│ │   ├── Buffer starting with "bplist00" → WebarchiveParser path             │
+│ │   │   (server/utils/webarchiveParser.ts, uses bplist-parser)              │
+│ │   ├── Text containing "MIME-Version" + "multipart/related" → MHTML path   │
+│ │   └── Otherwise → treat as raw HTML string                                │
+│ ├── For .mhtml / .webarchive:                                               │
+│ │   ├── Extract main HTML resource                                          │
+│ │   ├── Extract embedded image resources                                    │
+│ │   ├── Save images to ./uploads/imported-images                            │
+│ │   └── Rewrite img src / background-image URLs to local /uploads/ paths    │
+│ ├── Load resulting HTML with cheerio ($)                                    │
 │ ├── Extract order containers                                                │
 │ ├── For each order:                                                         │
 │ │   ├── Extract order metadata (number, date, status, total)               │
-│ │   ├── Find all order items                                               │
+│ │   ├── Find all order items (one of two layouts):                         │
+│ │   │   ├── Single-product:    .order-item-content-body with title/qty/price│
+│ │   │   └── Multi-product:     .order-item-content-img-list > a per item    │
+│ │   │                          (no per-item title/qty/price rendered;       │
+│ │   │                           order total split evenly, flagged review)   │
 │ │   ├── For each item:                                                     │
-│ │   │   ├── Extract product title                                          │
+│ │   │   ├── Extract product title (or synth from URL for multi-product)    │
 │ │   │   ├── Extract quantities and prices                                  │
 │ │   │   ├── Extract specifications/variations                              │
-│ │   │   ├── Extract and download product images                           │
+│ │   │   ├── Use embedded image if present, else download from CDN          │
 │ │   │   └── Classify component (resistor, capacitor, IC, etc.)            │
 │ │   └── Emit progress updates via SSE                                      │
 │ └── Return structured order data                                            │

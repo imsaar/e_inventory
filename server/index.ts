@@ -46,9 +46,12 @@ app.use(session({
 // CORS with proper configuration
 app.use(cors(corsOptions));
 
-// Body parsing with size limits
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing with size limits.
+// 50mb accommodates JSON payloads from AliExpress import (parsed orders batch
+// with original_data / item specifications / image paths). The global
+// requestSizeLimit middleware still caps non-upload routes at 10 MB.
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Sanitize all string inputs
 app.use(sanitizeStrings);

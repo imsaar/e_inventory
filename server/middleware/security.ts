@@ -29,13 +29,15 @@ export const securityHeaders = helmet({
 // Rate limiting configurations - minimum 100 requests per minute
 export const generalLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 500, // 500 requests per minute (well above minimum)
+  max: 2000, // 2000 requests per minute (covers preview pages with many image thumbnails)
   message: {
     error: 'Too many requests from this IP',
     details: ['Please try again later']
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Static asset reads from /uploads are disk-only — don't count them against the API cap.
+  skip: (req) => req.path.startsWith('/uploads/'),
 });
 
 export const strictLimiter = rateLimit({
@@ -134,18 +136,25 @@ export const securityLogger = (req: Request, res: Response, next: NextFunction) 
   next();
 };
 
-// Request size limiting to prevent DoS
+// Request size limiting to prevent DoS.
+// Upload routes (/api/import, /api/database, /api/uploads) enforce their own
+// per-route multer limits — apply the global 10 MB cap only outside those paths.
+const UPLOAD_ROUTE_PREFIXES = ['/api/import', '/api/database', '/api/uploads'];
 export const requestSizeLimit = (req: Request, res: Response, next: NextFunction) => {
+  if (UPLOAD_ROUTE_PREFIXES.some(prefix => req.path.startsWith(prefix))) {
+    return next();
+  }
+
   const contentLength = parseInt(req.get('Content-Length') || '0');
-  const maxSize = 10 * 1024 * 1024; // 10MB limit
-  
+  const maxSize = 10 * 1024 * 1024; // 10 MB limit for non-upload endpoints
+
   if (contentLength > maxSize) {
     return res.status(413).json({
       error: 'Request entity too large',
       details: ['Maximum request size is 10MB']
     });
   }
-  
+
   next();
 };
 

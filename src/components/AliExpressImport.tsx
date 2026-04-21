@@ -113,16 +113,21 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0];
       const fileName = droppedFile.name.toLowerCase();
-      const allowedTypes = ['text/html', 'message/rfc822', 'application/x-mimearchive'];
-      const allowedExtensions = ['.html', '.mhtml', '.mht'];
-      
+      const allowedTypes = [
+        'text/html',
+        'message/rfc822',
+        'application/x-mimearchive',
+        'application/x-webarchive',
+      ];
+      const allowedExtensions = ['.html', '.mhtml', '.mht', '.webarchive'];
+
       const hasValidType = allowedTypes.includes(droppedFile.type);
       const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
-      
+
       if (hasValidType || hasValidExtension) {
         setFile(droppedFile);
       } else {
-        alert('Please select an HTML or MHTML file');
+        alert('Please select an HTML, MHTML, or Safari .webarchive file');
       }
     }
   }, []);
@@ -236,7 +241,7 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
       
     } catch (error) {
       console.error('Error parsing HTML:', error);
-      alert(`Error parsing HTML file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Error parsing import file: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setLoading(false);
     }
   };
@@ -709,11 +714,12 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
               <li>Go to AliExpress → Account → My Orders</li>
               <li>Load all the orders you want to import (scroll down to load more)</li>
               <li><strong>Chrome (Recommended):</strong> Right-click → "Save As" → "Webpage, Single File" (.mhtml)</li>
+              <li><strong>Safari:</strong> File → Save As → Format "Web Archive" (.webarchive)</li>
               <li><strong>Other browsers:</strong> Right-click → "Save As" → "Webpage, Complete" (.html + folder)</li>
               <li>Upload the saved file below</li>
             </ol>
             <div className="format-benefits">
-              <p><strong>💡 Pro Tip:</strong> MHTML format (Chrome) includes all product images in a single file, making import faster and more reliable than HTML with separate image files!</p>
+              <p><strong>Pro Tip:</strong> MHTML (Chrome) and .webarchive (Safari) bundle all product images in a single file, making import faster and more reliable than HTML with separate image folders.</p>
             </div>
           </div>
 
@@ -727,12 +733,12 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
             <div className="drop-content">
               <FileText size={48} />
               <h3>Drop your AliExpress file here</h3>
-              <p className="drop-description">Supports HTML and MHTML formats</p>
+              <p className="drop-description">Supports HTML, MHTML, and Safari .webarchive formats</p>
               <div className="file-upload-options">
                 <span className="upload-separator">or</span>
                 <input
                   type="file"
-                  accept=".html,.mhtml,.mht"
+                  accept=".html,.mhtml,.mht,.webarchive"
                   onChange={handleFileChange}
                   className="file-input"
                   id="file-upload-input"
@@ -863,7 +869,7 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
             onClick={parseHTML}
             disabled={!file || loading}
           >
-            {loading ? 'Parsing...' : 'Parse HTML'}
+            {loading ? 'Parsing...' : 'Parse File'}
           </button>
         </div>
       </div>

@@ -11,6 +11,25 @@ interface OrderItem {
   unitCost: number;
   totalCost: number;
   notes?: string;
+  productTitle?: string;
+  productUrl?: string;
+  imageUrl?: string;
+  localImagePath?: string;
+  componentImageUrl?: string;
+}
+
+// Resolve the best available thumbnail URL for an order item.
+// Order item images are populated by AliExpress import; fall back to the
+// linked component's image_url for manually-created orders.
+function resolveItemImage(item: OrderItem): string | null {
+  if (item.localImagePath) return `/uploads/${item.localImagePath}`;
+  if (item.imageUrl) return item.imageUrl;
+  if (item.componentImageUrl) {
+    return item.componentImageUrl.startsWith('/') || item.componentImageUrl.startsWith('http')
+      ? item.componentImageUrl
+      : `/uploads/${item.componentImageUrl}`;
+  }
+  return null;
 }
 
 interface OrderWithItems extends Order {
@@ -241,6 +260,7 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
               <h3 className="detail-section-title">Order Items</h3>
               <div className="order-items-table">
                 <div className="table-header">
+                  <div className="table-cell">Image</div>
                   <div className="table-cell">Component</div>
                   <div className="table-cell">Part Number</div>
                   <div className="table-cell">Quantity</div>
@@ -248,33 +268,54 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                   <div className="table-cell">Total</div>
                   <div className="table-cell">Notes</div>
                 </div>
-                {order.items.map(item => (
-                  <div key={item.id} className="table-row">
-                    <div className="table-cell">
-                      <div className="component-info">
-                        <span className="component-name">{item.componentName}</span>
+                {order.items.map(item => {
+                  const imageUrl = resolveItemImage(item);
+                  const displayName = item.productTitle || item.componentName;
+                  return (
+                    <div key={item.id} className="table-row">
+                      <div className="table-cell">
+                        {imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            alt={displayName}
+                            className="order-item-thumbnail"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="order-item-thumbnail order-item-thumbnail-empty">
+                            <Package size={20} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="table-cell">
+                        <div className="component-info">
+                          <span className="component-name">{displayName}</span>
+                        </div>
+                      </div>
+                      <div className="table-cell">
+                        {item.componentPartNumber && (
+                          <span className="part-number">{item.componentPartNumber}</span>
+                        )}
+                      </div>
+                      <div className="table-cell">
+                        <span className="quantity">{item.quantity}</span>
+                      </div>
+                      <div className="table-cell">
+                        <span className="unit-cost">{formatCurrency(item.unitCost)}</span>
+                      </div>
+                      <div className="table-cell">
+                        <span className="total-cost">{formatCurrency(item.unitCost * item.quantity)}</span>
+                      </div>
+                      <div className="table-cell">
+                        {item.notes && <span className="item-notes">{item.notes}</span>}
                       </div>
                     </div>
-                    <div className="table-cell">
-                      {item.componentPartNumber && (
-                        <span className="part-number">{item.componentPartNumber}</span>
-                      )}
-                    </div>
-                    <div className="table-cell">
-                      <span className="quantity">{item.quantity}</span>
-                    </div>
-                    <div className="table-cell">
-                      <span className="unit-cost">{formatCurrency(item.unitCost)}</span>
-                    </div>
-                    <div className="table-cell">
-                      <span className="total-cost">{formatCurrency(item.unitCost * item.quantity)}</span>
-                    </div>
-                    <div className="table-cell">
-                      {item.notes && <span className="item-notes">{item.notes}</span>}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div className="table-row table-footer">
+                  <div className="table-cell"></div>
                   <div className="table-cell"></div>
                   <div className="table-cell"></div>
                   <div className="table-cell"></div>

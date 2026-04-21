@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { MHTMLParser } from './mhtmlParser';
+import { WebarchiveParser } from './webarchiveParser';
 
 type CheerioElement = any;
 
@@ -71,12 +72,14 @@ export class AliExpressHTMLParser {
   private readonly imageStoragePath: string;
   private progressCallback?: ProgressCallback;
   private mhtmlParser: MHTMLParser;
+  private webarchiveParser: WebarchiveParser;
   private urlMappings?: Record<string, string>;
-  
+
   constructor(imageStoragePath: string = './uploads/imported-images', progressCallback?: ProgressCallback) {
     this.imageStoragePath = imageStoragePath;
     this.progressCallback = progressCallback;
     this.mhtmlParser = new MHTMLParser(imageStoragePath);
+    this.webarchiveParser = new WebarchiveParser(imageStoragePath);
   }
 
   private reportProgress(stage: 'parsing' | 'orders' | 'items' | 'images' | 'complete', message: string, extra?: any) {
@@ -100,38 +103,59 @@ export class AliExpressHTMLParser {
   }
 
   /**
-   * Parse AliExpress order HTML or MHTML file
+   * Parse AliExpress order HTML, MHTML, or Safari webarchive content.
+   * Pass a Buffer for .webarchive (binary plist); string is fine for HTML/MHTML.
    */
-  async parseOrderHTML(content: string): Promise<ParsedAliExpressOrder[]> {
+  async parseOrderHTML(content: string | Buffer): Promise<ParsedAliExpressOrder[]> {
     let htmlContent: string;
     let embeddedImages: Record<string, string> = {};
 
+    if (Buffer.isBuffer(content) && WebarchiveParser.isWebarchiveBuffer(content)) {
+      this.reportProgress('parsing', 'Detected Safari webarchive, extracting content and images...');
+      try {
+        const parsed = await this.webarchiveParser.parseWebarchiveBuffer(content);
+        htmlContent = parsed.htmlContent;
+
+        this.reportProgress('images', `Processing ${parsed.images.length} embedded images...`);
+        embeddedImages = await this.webarchiveParser.saveEmbeddedImages(parsed.images);
+        this.urlMappings = embeddedImages;
+        htmlContent = this.webarchiveParser.replaceImageURLs(htmlContent, embeddedImages);
+        this.reportProgress('images', `Processed ${Object.keys(embeddedImages).length} embedded images`);
+
+        return this.parseHTMLContent(htmlContent, embeddedImages);
+      } catch (error) {
+        throw new Error(`Failed to parse webarchive: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    const stringContent = Buffer.isBuffer(content) ? content.toString('utf8') : content;
+
     // Check if this is MHTML format
-    if (this.isMHTMLContent(content)) {
+    if (this.isMHTMLContent(stringContent)) {
       this.reportProgress('parsing', 'Detected MHTML format, extracting content and images...');
       
       try {
-        const parsed = await this.mhtmlParser.parseMHTMLFile(content);
+        const parsed = await this.mhtmlParser.parseMHTMLFile(stringContent);
         htmlContent = parsed.htmlContent;
-        
+
         this.reportProgress('images', `Processing ${parsed.images.length} embedded images...`);
-        
+
         // Save embedded images and get URL mapping
         embeddedImages = await this.mhtmlParser.saveEmbeddedImages(parsed.images);
-        
+
         // Store URL mappings for use in image extraction
         this.urlMappings = embeddedImages;
-        
+
         // Replace image URLs in HTML
         htmlContent = this.mhtmlParser.replaceImageURLs(htmlContent, embeddedImages);
-        
+
         this.reportProgress('images', `Processed ${Object.keys(embeddedImages).length} embedded images`);
       } catch (error) {
         console.error('Failed to parse MHTML, trying as regular HTML:', error);
-        htmlContent = content;
+        htmlContent = stringContent;
       }
     } else {
-      htmlContent = content;
+      htmlContent = stringContent;
     }
 
     return this.parseHTMLContent(htmlContent, embeddedImages);
@@ -555,7 +579,24 @@ export class AliExpressHTMLParser {
     // For AliExpress order-item divs, each contains exactly one product
     // Parse directly from the order-item div since each represents one complete order
     if ('find' in searchContext) {
-      // We're parsing within a specific order-item div - extract the single product directly
+      // Multi-product orders on the My Orders page collapse all products into a single
+      // .order-item-content-body containing .order-item-content-img-list with one <a> per
+      // product. There is NO per-item title/quantity/unit price rendered — those would only
+      // be visible on the order detail page. When we detect this, emit one ParsedOrderItem
+      // per link with placeholder fields (manual review flagged downstream).
+      const imgListLinks = (searchContext as cheerio.Cheerio<CheerioElement>).find('.order-item-content-img-list > a');
+      if (imgListLinks.length > 1) {
+        this.reportProgress('items', `Detected multi-product order with ${imgListLinks.length} items (image-list layout)...`);
+        const multiItems = await this.parseItemsFromImgList($, searchContext as cheerio.Cheerio<CheerioElement>, imgListLinks);
+        items.push(...multiItems);
+        this.reportProgress('items', `✓ Extracted ${multiItems.length} products from image list`, {
+          processedItems: multiItems.length,
+          totalItems: multiItems.length,
+        });
+        return items;
+      }
+
+      // Single-product order — current path.
       this.reportProgress('items', 'Parsing single product from order-item div...');
       const singleItem = await this.parseItemFromOrderContainer($, searchContext);
       if (singleItem) {
@@ -915,6 +956,77 @@ export class AliExpressHTMLParser {
       console.error('Error parsing item from order container:', error);
       return null;
     }
+  }
+
+  /**
+   * Parse one item per <a> link in a multi-product order's .order-item-content-img-list.
+   * The My Orders page does not render per-item titles/quantities/unit prices for these
+   * orders, so we synthesise placeholder fields and let downstream import flag for review.
+   */
+  private async parseItemsFromImgList(
+    $: cheerio.CheerioAPI,
+    orderElement: cheerio.Cheerio<CheerioElement>,
+    links: cheerio.Cheerio<CheerioElement>
+  ): Promise<ParsedOrderItem[]> {
+    const items: ParsedOrderItem[] = [];
+
+    // Pull the order's grand total once so we can split it across items.
+    const totalPriceContainer = orderElement.find('.order-item-content-opt-price-total');
+    let orderTotal = 0;
+    const priceWrap = totalPriceContainer.find('[class*="es--wrap--"], .notranslate, [class*="wrap"], [class*="price"], [class*="amount"]').first();
+    if (priceWrap.length > 0) {
+      orderTotal = this.parsePrice(priceWrap.text().trim().replace(/\s+/g, ''));
+    }
+    const sellerName = orderElement.find('.order-item-store-name span').first().text().trim() ||
+                       orderElement.find('a[href*="store"]').text().trim();
+
+    const splitUnit = links.length > 0 ? Math.round((orderTotal / links.length) * 100) / 100 : 0;
+
+    for (let i = 0; i < links.length; i++) {
+      const link = $(links[i]);
+      const href = link.attr('href') || '';
+      const productUrl = href.startsWith('//') ? `https:${href}` : href;
+
+      // Derive a product identifier from the URL (e.g. /item/3256805841460957.html → 3256805841460957)
+      const idMatch = productUrl.match(/\/item\/(\d+)\.html/);
+      const productId = idMatch ? idMatch[1] : `unknown-${i + 1}`;
+      const productTitle = `AliExpress item ${productId}`;
+
+      // Extract image from background-image style on the inner .order-item-content-img
+      const imgDiv = link.find('.order-item-content-img');
+      const bgStyle: string = imgDiv.attr('style') || '';
+      const urlMatch = bgStyle.match(/url\(&quot;([^&]+)&quot;\)/) ||
+                       bgStyle.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/);
+      let imageUrl = urlMatch ? urlMatch[1].replace(/&quot;/g, '"') : '';
+
+      let localImagePath: string | undefined;
+      if (imageUrl) {
+        if (imageUrl.startsWith('/uploads/')) {
+          localImagePath = imageUrl.replace('/uploads/', '');
+        } else if (this.urlMappings && this.urlMappings[imageUrl]) {
+          localImagePath = this.urlMappings[imageUrl].replace('/uploads/', '');
+        } else {
+          localImagePath = await this.downloadImage(imageUrl, productTitle) || undefined;
+        }
+      }
+
+      const parsedComponent = this.parseComponentFromTitle(productTitle);
+
+      items.push({
+        productTitle,
+        quantity: 1,
+        unitPrice: splitUnit,
+        totalPrice: splitUnit,
+        imageUrl: undefined,
+        localImagePath,
+        productUrl: productUrl || undefined,
+        sellerName: sellerName || undefined,
+        specifications: { Note: 'Multi-item order — title/qty/unit price not visible on My Orders page; review and edit individually.' },
+        parsedComponent,
+      });
+    }
+
+    return items;
   }
 
   /**

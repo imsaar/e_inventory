@@ -41,15 +41,20 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024 // 50MB limit for HTML files with images
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['text/html', 'message/rfc822', 'application/x-mimearchive'];
-    const allowedExtensions = ['.html', '.mhtml', '.mht'];
+    const allowedTypes = [
+      'text/html',
+      'message/rfc822',
+      'application/x-mimearchive',
+      'application/x-webarchive',
+    ];
+    const allowedExtensions = ['.html', '.mhtml', '.mht', '.webarchive'];
     const hasValidType = allowedTypes.includes(file.mimetype);
     const hasValidExtension = allowedExtensions.some(ext => file.originalname.toLowerCase().endsWith(ext));
-    
+
     if (hasValidType || hasValidExtension) {
       cb(null, true);
     } else {
-      cb(new Error('Only HTML and MHTML files are allowed'));
+      cb(new Error('Only HTML, MHTML, and Safari .webarchive files are allowed'));
     }
   }
 });
@@ -71,7 +76,9 @@ router.post('/aliexpress/preview', (req, res, next) => {
     }
 
     const htmlFilePath = req.file.path;
-    const htmlContent = await fs.readFile(htmlFilePath, 'utf-8');
+    // Read as Buffer so we can handle binary formats (Safari .webarchive).
+    // The parser detects format from the buffer and converts to string for text formats.
+    const htmlContent = await fs.readFile(htmlFilePath);
     
     // Set up SSE headers for progress updates
     if (req.headers.accept === 'text/event-stream') {
