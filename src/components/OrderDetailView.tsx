@@ -10,6 +10,7 @@ interface OrderItem {
   componentPartNumber?: string;
   quantity: number;
   unitCost: number;
+  listUnitCost?: number | null;
   totalCost: number;
   notes?: string;
   productTitle?: string;
@@ -17,6 +18,7 @@ interface OrderItem {
   imageUrl?: string;
   localImagePath?: string;
   componentImageUrl?: string;
+  variation?: string;
 }
 
 
@@ -280,6 +282,9 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                       <div className="table-cell">
                         <div className="component-info">
                           <span className="component-name">{displayName}</span>
+                          {item.variation && (
+                            <span className="item-variation">{item.variation}</span>
+                          )}
                         </div>
                       </div>
                       <div className="table-cell">
@@ -292,6 +297,11 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                       </div>
                       <div className="table-cell">
                         <span className="unit-cost">{formatCurrency(item.unitCost)}</span>
+                        {typeof item.listUnitCost === 'number' && item.listUnitCost > item.unitCost && (
+                          <span className="unit-cost-strikethrough" title="Detail-page list price before store discount + coin credit">
+                            {formatCurrency(item.listUnitCost)}
+                          </span>
+                        )}
                       </div>
                       <div className="table-cell">
                         <span className="total-cost">{formatCurrency(item.unitCost * item.quantity)}</span>

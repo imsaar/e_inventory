@@ -127,6 +127,20 @@ The AliExpress import system has three sibling parsers feeding into one orchestr
 
 **Status updates on re-import**: When an order already exists (matched on `order_number`), the importer does not create a duplicate but *will* advance its status if the freshly-parsed status is further along the lifecycle. Policy lives in `shouldUpdateStatus` in `server/routes/import.ts`: forward progression only through `pending → ordered → shipped → delivered`, `cancelled` is always accepted (user cancelled), and `cancelled`/`delivered` never regress to earlier states. The endpoint bumps `results.statusUpdated` for surfaced counts.
 
+**Order detail enrichment (`POST /api/import/aliexpress/enrich-order/:orderId`)**: The My Orders list page hides per-item data for multi-product orders (no title/qty/unit price rendered in thumbnail strips). Uploading the order's *detail* page recovers that data. Key mechanics in `server/routes/import.ts` + `AliExpressHTMLParser.parseOrderDetail`:
+
+- **Parser** returns `{ orderNumber, items, subtotal, total }`. Order number is pulled from `orderId=<digits>` in tracking URLs; Subtotal/Total come from `data-pl="order_price_item_*"` pairs.
+- **Order-number guard**: rejects with 409 if the uploaded detail's order number doesn't match the URL-scoped order being edited.
+- **Matching is group-by-productId on both sides**, not a single-entry Map (the old bug). Multi-variant orders are common — e.g. 7 SKU colors sharing one product ID — and they're paired positionally within each productId group. `Map<productId, row[]>` + `Map<productId, detail[]>` → inner positional pair.
+- **Pass 2 (orphan positional)**: leftover detail items left after Pass 1 are paired with existing rows whose `product_url` has no parseable product ID (placeholder "AliExpress item unknown-N" rows from the original multi-item parser). The paired row has its `product_url` backfilled so it's matchable by ID on future enrichments.
+- **Missing-row creation**: detail items still unmatched after both passes get INSERTed as fresh `order_items` with new `components`. Nothing is silently discarded; this is how orders that were collapsed to fewer rows than the detail page reality get healed.
+- **Missing-component creation**: if a paired row's `component_id` is NULL (old data), a new component is inserted and the `order_items.component_id` gets linked — guarantees component-rename never silently skips.
+- **Discount spread**: `discountFactor = total / subtotal` (when subtotal > total). Each item's paid `unit_cost` is `rawListPrice × discountFactor`, so sum of line totals equals the actually-paid order total. The raw list price is stored separately in `order_items.list_unit_cost` (migration v9). `order_items.total_cost` is a GENERATED column from `quantity * unit_cost` — do NOT include it in UPDATE statements (SQLite errors).
+- **Authoritative total**: after all item writes, `orders.total_amount` gets rewritten to the detail page's Total.
+- **Unit-cost form precision**: the OrderForm's Unit Cost input uses `step="0.0001"` because discount-factor math produces 4-decimal values that `step="0.01"` would reject as "Please enter a valid value".
+
+**`list_unit_cost` column**: nullable REAL on `order_items`. Pre-existing rows stay NULL; only rows enriched via detail-page upload get the pre-discount list price populated. The OrderDetailView shows it as a muted strikethrough beneath the paid `unit_cost` when list > paid.
+
 ### Vite Proxy Configuration
 Frontend development requires proxying both API and static file requests:
 ```typescript
@@ -140,7 +154,7 @@ server: {
 ```
 
 ### Database Schema Evolution
-Current schema version: 7 (automatic migrations handle upgrades)
+Current schema version: 9 (automatic migrations handle upgrades)
 - **Database Path Logic**: Test environment uses unique DB per run, dev uses `inventory-dev.db`, production uses `inventory.db`
 - **Migration System**: Located in `server/database.ts`, automatically runs on startup
 - **Foreign Keys**: ENABLED - all deletions must check dependencies via `project_components`, `order_items` tables

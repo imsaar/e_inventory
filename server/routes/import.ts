@@ -397,6 +397,339 @@ router.post('/aliexpress/import', async (req, res) => {
  * page comes back as a captcha / SPA shell. The frontend treats failures as
  * non-fatal and falls back to manual editing.
  */
+/**
+ * Enrich an existing order with per-item details parsed from an uploaded
+ * AliExpress order DETAIL page webarchive/MHTML/HTML. Targets multi-product
+ * orders imported from the My Orders list, which only carry placeholder
+ * titles / evenly-split unit prices / qty=1 because the list page doesn't
+ * render those fields.
+ *
+ * Flow:
+ *   1. Read the upload as a Buffer (binary-safe for .webarchive).
+ *   2. AliExpressHTMLParser.parseOrderDetail extracts per-product rows with
+ *      { productId, productUrl, productTitle, quantity, unitPrice }.
+ *   3. Match each incoming row to an existing order_items row by the
+ *      numeric product ID in product_url. Update product_title, quantity,
+ *      unit_cost, total_cost, and local_image_path (if we learned a new
+ *      image). Bump the linked component's name + image_url too, since
+ *      placeholder components were literally named "AliExpress item <id>".
+ *   4. Return { matched, updated, unmatched } counts plus the IDs so the
+ *      frontend can show a summary and reload.
+ */
+router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
+  upload.single('detailFile')(req, res, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  const { orderId } = req.params;
+  let tempFilePath: string | null = null;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'detailFile is required' });
+    }
+    tempFilePath = req.file.path;
+    const db = getDb(req);
+
+    // Verify the order exists before doing any work.
+    const order = db.prepare('SELECT id, order_number FROM orders WHERE id = ?').get(orderId) as
+      { id: string; order_number: string | null } | undefined;
+    if (!order) {
+      return res.status(404).json({ error: `Order ${orderId} not found` });
+    }
+
+    // Parse the detail page.
+    const fileBuffer = await fs.readFile(tempFilePath);
+    const parser = new AliExpressHTMLParser('./uploads/imported-images');
+    const {
+      orderNumber: detailOrderNumber,
+      items: detailItems,
+      subtotal: detailSubtotal,
+      total: detailTotal,
+    } = await parser.parseOrderDetail(fileBuffer);
+
+    // Reject if the uploaded detail page is for a different order. Guards
+    // the user against accidentally enriching the wrong order.
+    if (detailOrderNumber && order.order_number && detailOrderNumber !== order.order_number) {
+      return res.status(409).json({
+        error: `Uploaded detail page is for order ${detailOrderNumber}, but you are editing order ${order.order_number}. Re-save the correct order's detail page and try again.`,
+      });
+    }
+
+    if (detailItems.length === 0) {
+      return res.status(422).json({
+        error: 'Could not extract any items from the uploaded detail page. Make sure you saved the order DETAIL page (click into an order), not the My Orders list.',
+      });
+    }
+
+    // Fetch existing order_items with their product URLs + linked components.
+    const existingItems = db.prepare(`
+      SELECT id, component_id, product_url, image_url, local_image_path
+      FROM order_items
+      WHERE order_id = ?
+    `).all(orderId) as Array<{
+      id: string;
+      component_id: string | null;
+      product_url: string | null;
+      image_url: string | null;
+      local_image_path: string | null;
+    }>;
+
+    // Matching strategy:
+    //   Pass 1 — group both detail items and existing rows by product ID,
+    //            pair them positionally within each group. Supports the
+    //            common case of multiple SKU variants under one product ID
+    //            (e.g. 7 color variants of the same jumper-wire product).
+    //   Pass 2 — pair any still-unmatched detail items with existing rows
+    //            whose product_url doesn't carry a parseable ID ("AliExpress
+    //            item unknown-N" placeholder rows from the original multi-
+    //            item parser where the href couldn't be read).
+    const extractId = (url: string | null) => {
+      const m = (url || '').match(/\/item\/(\d+)\.html/);
+      return m ? m[1] : null;
+    };
+    const rowsByProductId = new Map<string, typeof existingItems>();
+    const orphanRows: typeof existingItems = [];
+    for (const item of existingItems) {
+      const id = extractId(item.product_url);
+      if (id) {
+        if (!rowsByProductId.has(id)) rowsByProductId.set(id, []);
+        rowsByProductId.get(id)!.push(item);
+      } else {
+        orphanRows.push(item);
+      }
+    }
+
+    const detailsByProductId = new Map<string, typeof detailItems>();
+    for (const d of detailItems) {
+      if (!detailsByProductId.has(d.productId)) detailsByProductId.set(d.productId, []);
+      detailsByProductId.get(d.productId)!.push(d);
+    }
+
+    type Pair = { detail: typeof detailItems[0]; row: typeof existingItems[0] };
+    const pairs: Pair[] = [];
+    const leftoverDetails: typeof detailItems = [];
+    const claimedRowIds = new Set<string>();
+
+    for (const [productId, details] of detailsByProductId) {
+      const rows = rowsByProductId.get(productId) || [];
+      for (let i = 0; i < details.length; i++) {
+        if (i < rows.length) {
+          pairs.push({ detail: details[i], row: rows[i] });
+          claimedRowIds.add(rows[i].id);
+        } else {
+          leftoverDetails.push(details[i]);
+        }
+      }
+    }
+
+    // Spread any discount (store discount + coin credit + shipping
+    // adjustments) across items proportionally so sum(qty × effective
+    // unit_cost) matches the actually-paid total. Applied only when both
+    // subtotal and total are present and the total is strictly lower.
+    const discountFactor = (
+      detailSubtotal && detailTotal && detailSubtotal > 0 && detailTotal > 0 && detailTotal < detailSubtotal
+    ) ? detailTotal / detailSubtotal : 1;
+
+    const results = {
+      detailItems: detailItems.length,
+      matched: 0,
+      updated: 0,
+      created: 0,
+      componentsRenamed: 0,
+      pairedByFallback: 0,
+      subtotal: detailSubtotal,
+      total: detailTotal,
+      discountFactor,
+      unmatched: [] as Array<{ productId: string; productTitle: string }>,
+      orderItemIds: [] as string[],
+    };
+
+    // Pass 2: pair leftover detail items with orphan rows positionally.
+    // Items still unpaired after this will be INSERTed as new order_items
+    // in the transaction below — the detail page is authoritative, so if
+    // the order has more items than the My Orders list originally showed,
+    // we fill in the missing ones rather than discard them.
+    const leftoverAfterOrphans: typeof detailItems = [];
+    for (let i = 0; i < leftoverDetails.length; i++) {
+      const row = orphanRows[i];
+      const detail = leftoverDetails[i];
+      if (!row) {
+        leftoverAfterOrphans.push(detail);
+        continue;
+      }
+      pairs.push({ detail, row });
+      results.pairedByFallback++;
+    }
+
+    db.exec('BEGIN TRANSACTION');
+    try {
+      const now = new Date().toISOString();
+      for (const { detail, row } of pairs) {
+        results.matched++;
+
+        // Scale raw list price by the order-wide discount factor so line
+        // totals sum to what was actually paid. Round to 4 decimals — the
+        // table stores REAL so anything more is noise.
+        const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
+
+        // total_cost is GENERATED from quantity * unit_cost, so it's
+        // omitted from the UPDATE. product_url / variation are backfilled
+        // so orphan "AliExpress item unknown-N" rows become matchable on
+        // future enrichments.
+        db.prepare(`
+          UPDATE order_items
+          SET product_title = ?,
+              quantity = ?,
+              unit_cost = ?,
+              list_unit_cost = ?,
+              product_url = COALESCE(?, product_url),
+              variation = COALESCE(?, variation),
+              local_image_path = COALESCE(?, local_image_path),
+              manual_review = 0
+          WHERE id = ?
+        `).run(
+          detail.productTitle,
+          detail.quantity,
+          effectiveUnitCost,
+          detail.unitPrice,
+          detail.productUrl || null,
+          detail.variation || null,
+          detail.localImagePath || null,
+          row.id
+        );
+        results.orderItemIds.push(row.id);
+        results.updated++;
+
+        // The detail page is authoritative — rename the linked component
+        // when the name differs, and fill in its image if missing. When a
+        // row has no linked component (shouldn't happen with the current
+        // importer but happens for pre-existing rows), create one now and
+        // link it so the rename always lands.
+        let componentId = row.component_id;
+        if (!componentId) {
+          componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          db.prepare(`
+            INSERT INTO components (
+              id, name, description, category, quantity, min_threshold,
+              image_url, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            componentId,
+            detail.productTitle,
+            null,
+            'Electronic Component',
+            detail.quantity || 0,
+            0,
+            detail.localImagePath || null,
+            'available',
+            now,
+            now
+          );
+          db.prepare('UPDATE order_items SET component_id = ? WHERE id = ?').run(componentId, row.id);
+          results.componentsRenamed++;
+        } else {
+          const current = db.prepare('SELECT name FROM components WHERE id = ?').get(componentId) as
+            { name: string } | undefined;
+          const nameChanged = !!current && current.name !== detail.productTitle;
+          db.prepare(`
+            UPDATE components
+            SET name = ?,
+                image_url = COALESCE(image_url, ?),
+                updated_at = ?
+            WHERE id = ?
+          `).run(
+            detail.productTitle,
+            detail.localImagePath || null,
+            now,
+            componentId
+          );
+          if (nameChanged) results.componentsRenamed++;
+        }
+      }
+      // Insert rows for any detail items left unmatched after both pairing
+      // passes. Creates a new component for each and links it to the new
+      // order_item — this covers the common case where the original My
+      // Orders import collapsed a multi-variant order to fewer rows than
+      // the detail page actually has.
+      for (const detail of leftoverAfterOrphans) {
+        const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
+
+        const componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+          INSERT INTO components (
+            id, name, description, category, quantity, min_threshold,
+            image_url, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          componentId,
+          detail.productTitle,
+          null,
+          'Electronic Component',
+          detail.quantity || 0,
+          0,
+          detail.localImagePath || null,
+          'available',
+          now,
+          now
+        );
+
+        const orderItemId = `oit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+          INSERT INTO order_items (
+            id, order_id, component_id, product_title, product_url,
+            local_image_path, quantity, unit_cost, list_unit_cost,
+            variation, import_confidence, manual_review, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          orderItemId,
+          order.id,
+          componentId,
+          detail.productTitle,
+          detail.productUrl || null,
+          detail.localImagePath || null,
+          detail.quantity,
+          effectiveUnitCost,
+          detail.unitPrice,
+          detail.variation || null,
+          0.9,
+          0,
+          'Added from order-detail enrichment'
+        );
+
+        results.created++;
+        results.orderItemIds.push(orderItemId);
+        results.componentsRenamed++;
+      }
+
+      // If the detail page carries an authoritative total, write it back
+      // to orders.total_amount so the list view reflects the paid amount.
+      if (detailTotal && detailTotal > 0) {
+        db.prepare('UPDATE orders SET total_amount = ?, updated_at = ? WHERE id = ?').run(
+          detailTotal,
+          now,
+          order.id
+        );
+      }
+      db.exec('COMMIT');
+    } catch (dbErr) {
+      db.exec('ROLLBACK');
+      throw dbErr;
+    }
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('enrich-order error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to enrich order',
+    });
+  } finally {
+    if (tempFilePath) {
+      fs.unlink(tempFilePath).catch(() => undefined);
+    }
+  }
+});
+
 router.post('/aliexpress/fetch-title', async (req, res) => {
   const { productUrl, componentId, orderItemId } = req.body || {};
 

@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 9;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -580,6 +580,27 @@ function runMigrations() {
       console.log('Migration to version 8 completed successfully');
     } catch (error: any) {
       console.error('Migration to version 8 failed:', error);
+      throw error;
+    }
+  }
+
+  // Migration to version 9: Add list_unit_cost to order_items so we can
+  // preserve the pre-discount list price alongside the discounted unit_cost
+  // populated by the detail-page enrichment flow.
+  if (currentVersion < 9) {
+    console.log('Running migration to version 9: Adding list_unit_cost to order_items');
+    try {
+      const columns = db.prepare("PRAGMA table_info(order_items)").all();
+      const columnNames = columns.map((col: any) => col.name);
+      if (!columnNames.includes('list_unit_cost')) {
+        db.exec(`ALTER TABLE order_items ADD COLUMN list_unit_cost REAL DEFAULT NULL`);
+      } else {
+        console.log('list_unit_cost column already exists in order_items');
+      }
+      db.exec(`INSERT INTO schema_version (version) VALUES (9)`);
+      console.log('Migration to version 9 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 9 failed:', error);
       throw error;
     }
   }

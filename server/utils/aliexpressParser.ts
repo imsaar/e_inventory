@@ -31,6 +31,16 @@ export interface ParsedOrderItem {
   parsedComponent?: ParsedComponent;
 }
 
+export interface ParsedOrderDetailItem {
+  productId: string;
+  productUrl: string;
+  productTitle: string;
+  quantity: number;
+  unitPrice: number;
+  variation?: string;
+  localImagePath?: string;
+}
+
 export interface ParsedComponent {
   name: string;
   category: string;
@@ -315,6 +325,206 @@ export class AliExpressHTMLParser {
     }
 
     return orders;
+  }
+
+  /**
+   * Parse an AliExpress *order detail* page (the one you land on when you
+   * click into a single order from My Orders). Unlike the list page, the
+   * detail page renders every product separately with its own title,
+   * quantity, and unit price — the info multi-product orders need to be
+   * enriched with.
+   *
+   * Input may be a Buffer (webarchive), an MHTML string, or raw HTML.
+   * Returns one entry per product found on the page.
+   *
+   * Selectors are deliberately tried in order of specificity: first the
+   * AliExpress list-page classes (which seem to appear on the detail page
+   * too), then a generic fallback that discovers product blocks by their
+   * /item/<id>.html links.
+   */
+  async parseOrderDetail(content: string | Buffer): Promise<{
+    orderNumber: string | null;
+    items: ParsedOrderDetailItem[];
+    subtotal: number | null;
+    total: number | null;
+  }> {
+    let htmlContent: string;
+
+    if (Buffer.isBuffer(content) && WebarchiveParser.isWebarchiveBuffer(content)) {
+      const parsed = await this.webarchiveParser.parseWebarchiveBuffer(content);
+      htmlContent = parsed.htmlContent;
+      const mapping = await this.webarchiveParser.saveEmbeddedImages(parsed.images);
+      this.urlMappings = mapping;
+      htmlContent = this.webarchiveParser.replaceImageURLs(htmlContent, mapping);
+    } else {
+      const stringContent = Buffer.isBuffer(content) ? content.toString('utf8') : content;
+      if (this.isMHTMLContent(stringContent)) {
+        const parsed = await this.mhtmlParser.parseMHTMLFile(stringContent);
+        htmlContent = parsed.htmlContent;
+        const mapping = await this.mhtmlParser.saveEmbeddedImages(parsed.images);
+        this.urlMappings = mapping;
+        htmlContent = this.mhtmlParser.replaceImageURLs(htmlContent, mapping);
+      } else {
+        htmlContent = stringContent;
+      }
+    }
+
+    const $ = cheerio.load(htmlContent);
+    const items: ParsedOrderDetailItem[] = [];
+
+    // Pull the order number off the page (for caller-side validation that
+    // the upload matches the order being edited). AliExpress embeds it in
+    // tracking URLs like orderId=8210776300874277.
+    let orderNumber: string | null = null;
+    const orderNumberFromText = htmlContent.match(/orderId[^\d]{0,10}(\d{10,})/i);
+    if (orderNumberFromText) orderNumber = orderNumberFromText[1];
+
+    // Strategy 1: detail-page product block selectors. The detail page uses
+    // .order-detail-item-content (one per line on the order, including
+    // multiple variants of the same product ID) with .item-title /
+    // .item-price / .item-price-quantity / .item-sku-attr children. List-
+    // page classes are also tried in case a saved view reuses them.
+    const listSelectors = [
+      '.order-detail-item-content',
+      '.order-item-content-body',
+      '.product-item',
+      '.item-container',
+      '.order-detail-item-wrap',
+      '.order-detail-product',
+    ];
+
+    for (const selector of listSelectors) {
+      const blocks = $(selector);
+      if (blocks.length === 0) continue;
+      blocks.each((_, el) => {
+        const $el = $(el);
+        // Skip anything inside a "You may also like" / recommendation carousel.
+        if ($el.closest('.slick-slide, [class*="slick"], [class*="recommend"], [class*="Recommend"]').length > 0) return;
+        const item = this.extractDetailItem($, $el);
+        // Do NOT dedupe by productId — multiple blocks with the same ID are
+        // distinct SKU variants (e.g. different colors/sizes of the same
+        // product) that each count as their own line item.
+        if (item) items.push(item);
+      });
+      if (items.length > 0) break;
+    }
+
+    // Pricing breakdown: pull Subtotal and Total from the panel at the
+    // bottom of the detail page. The difference covers Store discount +
+    // Coin credit + any other adjustments; the caller spreads it across
+    // items proportionally so line totals sum to the actual paid amount.
+    let subtotal: number | null = null;
+    let total: number | null = null;
+    const priceTitles = $('[data-pl="order_price_item_title"]');
+    priceTitles.each((_, el) => {
+      const label = $(el).text().trim().toLowerCase();
+      const value = $(el).nextAll('[data-pl="order_price_item_value"]').first();
+      if (value.length === 0) return;
+      const amount = this.parsePrice(value.text().replace(/\s+/g, ''));
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      if (label.startsWith('subtotal') && subtotal === null) subtotal = amount;
+      else if (label.startsWith('total') && total === null) total = amount;
+    });
+
+    console.log(`Order detail parse: order ${orderNumber || '(unknown)'}, extracted ${items.length} items, subtotal=${subtotal}, total=${total}`);
+    return { orderNumber, items, subtotal, total };
+  }
+
+  /**
+   * Pull title / qty / unit price / image from a container that represents
+   * a single product on the order detail page.
+   */
+  private extractDetailItem(
+    $: cheerio.CheerioAPI,
+    container: cheerio.Cheerio<CheerioElement>,
+    forcedProductId?: string,
+    forcedHref?: string
+  ): ParsedOrderDetailItem | null {
+    // product URL / id
+    let href = forcedHref || container.find('a[href*="/item/"]').first().attr('href') || '';
+    const idMatch = href.match(/\/item\/(\d+)\.html/);
+    const productId = forcedProductId || (idMatch ? idMatch[1] : '');
+    if (!productId) return null;
+    const productUrl = href.startsWith('//') ? `https:${href}` : href;
+
+    // title — detail page wraps each in .item-title; list page uses
+    // .order-item-content-info-name span[title].
+    let productTitle = '';
+    const titleEl = container.find('.item-title a, .item-title, .order-item-content-info-name span[title], .product-name, a[href*="/item/"][title]').first();
+    if (titleEl.length > 0) {
+      productTitle = (titleEl.attr('title') || titleEl.text() || '').trim();
+    }
+    if (!productTitle) {
+      productTitle = (container.find('a[href*="/item/"]').first().text() || '').trim();
+    }
+
+    // quantity — detail page puts "xN" in .item-price-quantity; list page
+    // uses .order-item-content-info-number-quantity.
+    let quantity = 1;
+    const qtyEl = container.find('.item-price-quantity, .order-item-content-info-number-quantity, .quantity, .qty, [class*="quantity"]').first();
+    if (qtyEl.length > 0) {
+      const m = qtyEl.text().match(/x\s*(\d+)|(\d+)/i);
+      if (m) quantity = parseInt(m[1] || m[2], 10) || 1;
+    } else {
+      const m = container.text().match(/x\s*(\d+)\b/);
+      if (m) quantity = parseInt(m[1], 10) || 1;
+    }
+
+    // unit price — detail page wraps the value in .item-price > .notranslate
+    // (with dynamically-named .es--wrap--* siblings).
+    let unitPrice = 0;
+    const priceContainer = container.find('.item-price, .order-item-content-info-number').first();
+    const priceScope = priceContainer.length > 0 ? priceContainer : container;
+    const priceEl = priceScope.find('.notranslate, [class*="es--wrap--"]').first();
+    if (priceEl.length > 0) {
+      unitPrice = this.parsePrice(priceEl.text().replace(/\s+/g, ''));
+    }
+    if (unitPrice === 0) {
+      const m = priceScope.text().match(/\$\s*([\d.,]+)/);
+      if (m) unitPrice = this.parsePrice(m[0]);
+    }
+
+    // image — detail page puts background-image on .order-detail-item-content-img.
+    let imageUrl = '';
+    const imgDiv = container.find('.order-detail-item-content-img, .order-item-content-img, [style*="background-image"]').first();
+    const bgStyle = imgDiv.attr('style') || '';
+    const bgMatch = bgStyle.match(/url\(&quot;([^&]+)&quot;\)/) ||
+                    bgStyle.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/);
+    if (bgMatch) imageUrl = bgMatch[1].replace(/&quot;/g, '"');
+    if (!imageUrl) {
+      const img = container.find('img[src*="alicdn"], img').first();
+      imageUrl = img.attr('src') || img.attr('data-src') || '';
+    }
+    if (imageUrl && imageUrl.startsWith('//')) imageUrl = `https:${imageUrl}`;
+
+    let localImagePath: string | undefined;
+    if (imageUrl) {
+      if (imageUrl.startsWith('/uploads/')) {
+        localImagePath = imageUrl.replace('/uploads/', '');
+      } else if (this.urlMappings && this.urlMappings[imageUrl]) {
+        localImagePath = this.urlMappings[imageUrl].replace('/uploads/', '');
+      }
+    }
+
+    if (!productTitle) productTitle = `AliExpress item ${productId}`;
+
+    // SKU / variant attributes (e.g. "Orange x 30pcs, Female to Female, 10 CM")
+    let variation: string | undefined;
+    const variationEl = container.find('.item-sku-attr, .sku-attr, .item-variation').first();
+    if (variationEl.length > 0) {
+      const v = variationEl.text().trim();
+      if (v) variation = v;
+    }
+
+    return {
+      productId,
+      productUrl,
+      productTitle,
+      quantity,
+      unitPrice,
+      variation,
+      localImagePath,
+    };
   }
 
   /**

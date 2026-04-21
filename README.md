@@ -54,6 +54,8 @@ A comprehensive web-based inventory management system designed specifically for 
 
 🚀 **AliExpress Import System (September 2025)** - Complete HTML-based order import functionality with intelligent component recognition, automatic categorization, cost tracking, and comprehensive import history. Features advanced MHTML parsing with embedded image extraction, smart URL mapping for local image storage, and component thumbnail display in both grid and list views. Supports AliExpress order page parsing with smart component tagging and real-time progress tracking. Now also accepts Safari `.webarchive` exports of the My Orders page (binary plist parsing, embedded images extracted automatically).
 
+🔬 **Order Detail Enrichment** - Upload an AliExpress order *detail* page (webarchive / MHTML / HTML) from the Order edit form to fill in the per-item data that the My Orders list page collapses on multi-product orders. The enrich endpoint validates the order number matches, handles multiple SKU variants of the same product ID, spreads the "Store discount" and "Coin credit" proportionally across items so line totals sum to the actual paid amount, stores the pre-discount list price alongside the paid price (`list_unit_cost`), auto-creates missing components and missing order item rows so nothing is silently dropped, and writes the authoritative order total back to the parent order. An "Open on AliExpress" button next to the upload deep-links to the order's detail page so you can save it in one click.
+
 🔓 **Authentication Removal (September 2025)** - Streamlined system for development and testing by removing authentication requirements from all endpoints. All API routes are now publicly accessible while maintaining core security features like rate limiting and input validation.
 
 ⚡ **Performance & Network Improvements (September 2025)** - Fixed Vite development server network accessibility, achieved sub-millisecond API response times, and implemented comprehensive testing suite with 230+ tests including full AliExpress import functionality coverage.
@@ -163,6 +165,7 @@ A comprehensive web-based inventory management system designed specifically for 
 - `POST /api/import/aliexpress/preview` - Upload and preview AliExpress HTML, MHTML, or .webarchive file
 - `POST /api/import/aliexpress/import` - Import parsed orders and create components
 - `POST /api/import/aliexpress/fetch-title` - Fetch a product title from AliExpress for a given product URL (used by the order edit form to enrich placeholder titles from multi-product imports)
+- `POST /api/import/aliexpress/enrich-order/:orderId` - Upload an order detail page (webarchive/MHTML/HTML) and update the existing order's items in place. Matches items by product ID (with positional fallback for orphan rows), spreads the discount factor across items, creates any missing rows, and overwrites `orders.total_amount` with the authoritative paid total.
 
 ### Database Management
 - `GET /api/database/info` - Get database information and statistics
@@ -300,6 +303,8 @@ npm run build            # Production build
 > **Multi-product orders:** AliExpress collapses orders containing more than one product to a thumbnail strip on the My Orders page — per-item titles, quantities, and unit prices are not rendered there. The importer creates one item per thumbnail with a placeholder title (`AliExpress item <product-id>`) and an even split of the order total; review and edit these in the order detail view after import.
 >
 > **Fetch real titles on demand:** In the order edit form, placeholder items get a "Fetch title" button next to the name. Clicking it asks the backend to fetch the AliExpress product page (following the .com → login → .us cookie-set redirect chain) and updates the linked component name + order item title. AliExpress's anti-bot may occasionally block — failures surface inline so you can retry or rename manually.
+>
+> **Best path for multi-product orders: upload the order detail page.** The order edit form has an "Open on AliExpress" button that opens the order's detail page in a new tab — save that page as a `.webarchive` (Safari) or `.mhtml` (Chrome) and upload it via "Import detail page". The server pulls per-item titles, quantities, list prices, and SKU variants, spreads the Store discount + Coin credit proportionally so line totals sum to the paid amount, and creates any rows the original My Orders import collapsed.
 
 ### Adding Components
 1. Navigate to the Components page

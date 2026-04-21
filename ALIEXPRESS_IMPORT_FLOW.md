@@ -203,6 +203,41 @@
 │ └── Dashboard refresh (if hooks enabled)                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
 
+12. Order Detail Enrichment (Optional, Post-Import)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Multi-product orders on the My Orders list render as thumbnail strips with  │
+│ no per-item title/qty/unit price. Uploading the order's detail page fills   │
+│ in that data.                                                               │
+│                                                                             │
+│ User flow:                                                                  │
+│ ├── Open the order in the Edit form                                         │
+│ ├── Click "Open on AliExpress" (deep-links to detail page via orderId)      │
+│ ├── Save page as .webarchive (Safari) / .mhtml (Chrome) / .html             │
+│ └── Click "Import detail page" and pick the file                            │
+│                                                                             │
+│ Backend flow (POST /api/import/aliexpress/enrich-order/:orderId):           │
+│ ├── AliExpressHTMLParser.parseOrderDetail → { orderNumber, items,           │
+│ │   subtotal, total }                                                       │
+│ ├── Guard: 409 if detail's orderNumber ≠ the order being edited             │
+│ ├── Match existing order_items to detail items:                             │
+│ │   ├── Pass 1 — group both sides by productId, pair positionally within    │
+│ │   │           each group (handles multi-SKU-variant orders cleanly)       │
+│ │   ├── Pass 2 — pair any leftovers with orphan placeholder rows whose      │
+│ │   │           product_url has no parseable ID ("unknown-N") positionally  │
+│ │   └── Pass 3 — for still-unmatched detail items: INSERT new order_items   │
+│ │                + new components, so nothing is dropped                    │
+│ ├── Discount factor = total / subtotal (when total < subtotal)              │
+│ ├── For each matched pair: UPDATE product_title, quantity, unit_cost (raw  │
+│ │   × factor), list_unit_cost (raw), variation, product_url, image; auto-  │
+│ │   create component if NULL, else rename unconditionally                   │
+│ ├── UPDATE orders.total_amount = detail.total (authoritative)               │
+│ └── Return { detailItems, matched, updated, created, componentsRenamed,     │
+│     pairedByFallback, subtotal, total, discountFactor }                     │
+│                                                                             │
+│ total_cost is a GENERATED column — never included in UPDATE statements.     │
+│ list_unit_cost is a nullable REAL column added in migration v9.             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
 11. On-Demand Title Enrichment (Optional, Post-Import)
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ For multi-product orders, items land with placeholder titles like           │

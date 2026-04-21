@@ -61,12 +61,14 @@ const mapOrderItemRow = (row: any) => ({
   componentId: row.component_id,
   quantity: row.quantity,
   unitCost: row.unit_cost,
+  listUnitCost: row.list_unit_cost,
   totalCost: row.total_cost,
   notes: row.notes,
   productTitle: row.product_title,
   productUrl: row.product_url,
   imageUrl: row.image_url,
-  localImagePath: row.local_image_path
+  localImagePath: row.local_image_path,
+  variation: row.variation
 });
 
 // GET /api/orders - List all orders with search/filter support

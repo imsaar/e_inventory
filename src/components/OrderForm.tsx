@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Search, Package, ExternalLink, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Plus, Trash2, Search, Package, ExternalLink, RefreshCw, Upload } from 'lucide-react';
 import { Component, Order } from '../types';
 import { resolveOrderItemImage } from '../utils/orderItemImage';
 
@@ -45,6 +45,9 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
   const [componentsLoading, setComponentsLoading] = useState(true);
   const [fetchingTitleId, setFetchingTitleId] = useState<string | null>(null);
   const [fetchTitleErrors, setFetchTitleErrors] = useState<Record<string, string>>({});
+  const [enrichingDetail, setEnrichingDetail] = useState(false);
+  const [enrichStatus, setEnrichStatus] = useState<string | null>(null);
+  const detailFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadComponents();
@@ -135,6 +138,57 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
   const removeItem = (index: number) => {
     const newItems = items.filter((_, i) => i !== index);
     setItems(newItems);
+  };
+
+  // Upload an AliExpress order detail page (.webarchive from Safari,
+  // .mhtml from Chrome, or a plain .html save) and enrich the current
+  // order's items with per-row title/qty/unit cost. Used to recover
+  // details that the My Orders page collapses for multi-product orders.
+  const handleDetailFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset input so the same file can be re-uploaded later.
+    if (detailFileInputRef.current) detailFileInputRef.current.value = '';
+    if (!file || !order) return;
+
+    setEnrichingDetail(true);
+    setEnrichStatus(`Uploading ${file.name}…`);
+    try {
+      const formData = new FormData();
+      formData.append('detailFile', file);
+      const response = await fetch(`/api/import/aliexpress/enrich-order/${order.id}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Request failed with ${response.status}`);
+      }
+      const r = data.results;
+      const parts = [
+        `parsed ${r.detailItems} item${r.detailItems === 1 ? '' : 's'}`,
+        `updated ${r.updated} row${r.updated === 1 ? '' : 's'}`,
+      ];
+      if (r.created > 0) {
+        parts.push(`added ${r.created} missing row${r.created === 1 ? '' : 's'}`);
+      }
+      if (r.pairedByFallback > 0) {
+        parts.push(`${r.pairedByFallback} paired positionally (orphan placeholders)`);
+      }
+      if (r.componentsRenamed > 0) {
+        parts.push(`renamed ${r.componentsRenamed} component${r.componentsRenamed === 1 ? '' : 's'}`);
+      }
+      if (r.discountFactor && r.discountFactor < 1 && r.subtotal && r.total) {
+        const pct = Math.round((1 - r.discountFactor) * 100);
+        parts.push(`spread ${pct}% discount (subtotal $${r.subtotal.toFixed(2)} → paid $${r.total.toFixed(2)})`);
+      }
+      setEnrichStatus(`Detail import complete — ${parts.join(', ')}.`);
+      // Reload form data from the API so the table reflects the updates.
+      await loadOrderForEditing();
+    } catch (err) {
+      setEnrichStatus(`Detail import failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setEnrichingDetail(false);
+    }
   };
 
   // Fetch the real product title from AliExpress for a placeholder item.
@@ -342,16 +396,54 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
             <div className="order-items-section">
               <div className="section-header">
                 <h3>Order Items</h3>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-small"
-                  onClick={addNewItem}
-                  disabled={componentsLoading}
-                >
-                  <Plus size={16} />
-                  Add Component
-                </button>
+                <div className="section-header-actions">
+                  {order && formData.orderNumber && (
+                    <a
+                      href={`https://www.aliexpress.com/p/order/detail.html?orderId=${encodeURIComponent(formData.orderNumber)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-secondary btn-small"
+                      title="Open this order's detail page on AliExpress (log in, then File → Save As a webarchive or MHTML)"
+                    >
+                      <ExternalLink size={14} />
+                      Open on AliExpress
+                    </a>
+                  )}
+                  {order && (
+                    <>
+                      <input
+                        type="file"
+                        ref={detailFileInputRef}
+                        accept=".html,.mhtml,.mht,.webarchive"
+                        style={{ display: 'none' }}
+                        onChange={handleDetailFileSelected}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-small"
+                        onClick={() => detailFileInputRef.current?.click()}
+                        disabled={enrichingDetail}
+                        title="Upload an order detail page (.webarchive/.mhtml/.html) to fill in per-item titles, quantities, and unit costs"
+                      >
+                        <Upload size={14} />
+                        {enrichingDetail ? 'Importing…' : 'Import detail page'}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-small"
+                    onClick={addNewItem}
+                    disabled={componentsLoading}
+                  >
+                    <Plus size={16} />
+                    Add Component
+                  </button>
+                </div>
               </div>
+              {enrichStatus && (
+                <div className="enrich-status">{enrichStatus}</div>
+              )}
 
               {items.length === 0 ? (
                 <div className="empty-items">
@@ -467,7 +559,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
                         <input
                           type="number"
                           min="0"
-                          step="0.01"
+                          step="0.0001"
                           value={item.unitCost}
                           onChange={(e) => updateItemUnitCost(index, parseFloat(e.target.value) || 0)}
                           className="cost-input"
