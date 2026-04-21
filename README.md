@@ -160,8 +160,9 @@ A comprehensive web-based inventory management system designed specifically for 
 ### AliExpress Import
 - `GET /api/import/test` - Test import system endpoint
 - `GET /api/import/history` - Get import history with statistics
-- `POST /api/import/aliexpress/preview` - Upload and preview AliExpress HTML file
+- `POST /api/import/aliexpress/preview` - Upload and preview AliExpress HTML, MHTML, or .webarchive file
 - `POST /api/import/aliexpress/import` - Import parsed orders and create components
+- `POST /api/import/aliexpress/fetch-title` - Fetch a product title from AliExpress for a given product URL (used by the order edit form to enrich placeholder titles from multi-product imports)
 
 ### Database Management
 - `GET /api/database/info` - Get database information and statistics
@@ -297,6 +298,8 @@ npm run build            # Production build
 > Both `.mhtml` and `.webarchive` bundle product images into the file itself, so no external image fetching is needed during import.
 >
 > **Multi-product orders:** AliExpress collapses orders containing more than one product to a thumbnail strip on the My Orders page — per-item titles, quantities, and unit prices are not rendered there. The importer creates one item per thumbnail with a placeholder title (`AliExpress item <product-id>`) and an even split of the order total; review and edit these in the order detail view after import.
+>
+> **Fetch real titles on demand:** In the order edit form, placeholder items get a "Fetch title" button next to the name. Clicking it asks the backend to fetch the AliExpress product page (following the .com → login → .us cookie-set redirect chain) and updates the linked component name + order item title. AliExpress's anti-bot may occasionally block — failures surface inline so you can retry or rename manually.
 
 ### Adding Components
 1. Navigate to the Components page

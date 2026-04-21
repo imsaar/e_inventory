@@ -114,6 +114,17 @@ The AliExpress import system has three sibling parsers feeding into one orchestr
 
 **Multi-product order layout**: On AliExpress's My Orders page, single-product orders render a `.order-item-content-body` with `.order-item-content-info-name` (title), `.order-item-content-info-number` (price/qty), and `.order-item-content-img` (one image). Multi-product orders use a different layout: a single `.order-item-content-body` containing `.order-item-content-img-list > a` (one anchor per product) — **no per-item title, quantity, or unit price is rendered** (those would only appear on the order detail page). The parser detects `.order-item-content-img-list > a` count > 1 and emits one `ParsedOrderItem` per link via `parseItemsFromImgList`, with placeholder title `AliExpress item <id>`, the order total split evenly across items, and a `specifications.Note` flagging it for manual review.
 
+**On-demand title enrichment**: The order edit form (`OrderForm.tsx`) shows a "Fetch title" button on rows whose displayed name matches `^AliExpress item \d+`. The button calls `POST /api/import/aliexpress/fetch-title` with the row's `productUrl`, `componentId`, and `orderItemId`. The endpoint:
+- Validates the host is `aliexpress.com|.us|.ru`.
+- Uses `fetchAliExpressPage()` which follows redirects manually (up to 20) with a per-request cookie jar — necessary because AliExpress bounces `.com` URLs through `login.aliexpress.com/sync_cookie_read` setting cookies on each hop. node-fetch's automatic follower hits its 20-redirect cap because it doesn't carry Set-Cookie forward.
+- Extracts title from `og:title` → `twitter:title` → `meta name=title` → `<title>`, strips `" - AliExpress"` / `" | aliexpress.com"` suffixes, decodes HTML entities.
+- Updates `components.name` and `order_items.product_title` server-side.
+- Returns 502 on anti-bot blocks, 504 on timeouts, 4xx on bad input. Frontend treats failures as non-fatal and surfaces inline.
+
+**Order item images**: `mapOrderItemRow` in `server/routes/orders.ts` returns `productTitle, productUrl, imageUrl, localImagePath`; the `/api/orders/:id` query also joins `c.image_url as component_image_url`. The shared frontend helper `src/utils/orderItemImage.ts#resolveOrderItemImage()` resolves the best thumbnail via `localImagePath → imageUrl → component image_url`, used by both `OrderDetailView` and `OrderForm`.
+
+**Shared table grid pitfall**: `OrderDetailView` uses 7 columns (Image / Component / Part / Qty / Unit / Total / Notes) while `OrderForm` uses 5 (Component / Qty / Unit / Total / Actions). They share `.order-items-table > .table-header / .table-row` CSS. The detail view scopes its 7-column grid via the `.order-items-table--detail` modifier on its outer div — keep this scoping if you change either grid, or the cells will overlap.
+
 ### Vite Proxy Configuration
 Frontend development requires proxying both API and static file requests:
 ```typescript

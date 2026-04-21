@@ -196,6 +196,34 @@
 │ └── Dashboard refresh (if hooks enabled)                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
 
+11. On-Demand Title Enrichment (Optional, Post-Import)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ For multi-product orders, items land with placeholder titles like           │
+│ "AliExpress item 3256805841460957" because the My Orders page does not      │
+│ render per-item titles.                                                     │
+│                                                                             │
+│ User flow:                                                                  │
+│ ├── Open order edit form                                                    │
+│ ├── Click "Fetch title" beside a placeholder item                           │
+│ └──> POST /api/import/aliexpress/fetch-title                                │
+│      Body: { productUrl, componentId?, orderItemId? }                       │
+│                                                                             │
+│ Backend (server/routes/import.ts#fetchAliExpressPage):                      │
+│ ├── Validates host is aliexpress.com / .us / .ru                            │
+│ ├── Manually follows redirects with a cookie jar (node-fetch's automatic    │
+│ │   follower drops Set-Cookie, so AliExpress's login → sync_cookie_read →   │
+│ │   .us redirect chain blows past the 20-redirect cap without cookies)      │
+│ ├── Parses og:title → twitter:title → <title>, strips suffixes, decodes     │
+│ │   HTML entities                                                           │
+│ ├── Updates components.name and order_items.product_title                   │
+│ └── Returns { title, productId, success } or 4xx/5xx with error             │
+│                                                                             │
+│ Failure modes (all non-fatal, surfaced inline in the form):                 │
+│ ├── 502: AliExpress returned a non-2xx, or the page is a captcha shell      │
+│ ├── 504: Timed out (10s per redirect hop)                                   │
+│ └── 4xx: Invalid URL or non-AliExpress host                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
 ```
 
 ## Key Data Structures

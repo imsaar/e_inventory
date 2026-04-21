@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
+import fetch from 'node-fetch';
 import defaultDb from '../database';
 import { AliExpressHTMLParser } from '../utils/aliexpressParser';
 // import { authenticate } from '../middleware/auth'; // Removed for testing
@@ -363,6 +364,176 @@ router.post('/aliexpress/import', async (req, res) => {
     });
   }
 });
+
+/**
+ * Fetch the product title for a single AliExpress item by its product URL.
+ * Used by the order edit form to enrich placeholder titles from multi-product
+ * imports (where the My Orders page only renders thumbnails, not titles).
+ *
+ * Body: { productUrl: string, componentId?: string, orderItemId?: string }
+ *  - If componentId is provided, the linked component's name is updated.
+ *  - If orderItemId is provided, the order_items.product_title is updated.
+ *
+ * Response: { title, productId } on success, { error } on failure.
+ *
+ * Caveat: AliExpress aggressively blocks bots — this can return 502 if the
+ * page comes back as a captcha / SPA shell. The frontend treats failures as
+ * non-fatal and falls back to manual editing.
+ */
+router.post('/aliexpress/fetch-title', async (req, res) => {
+  const { productUrl, componentId, orderItemId } = req.body || {};
+
+  if (!productUrl || typeof productUrl !== 'string') {
+    return res.status(400).json({ error: 'productUrl is required' });
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(productUrl);
+  } catch {
+    return res.status(400).json({ error: 'productUrl is not a valid URL' });
+  }
+  if (!/(^|\.)aliexpress\.(com|us|ru)$/i.test(parsed.hostname)) {
+    return res.status(400).json({ error: 'Only AliExpress URLs are accepted' });
+  }
+  const idMatch = parsed.pathname.match(/\/item\/(\d+)\.html/);
+  const productId = idMatch ? idMatch[1] : null;
+
+  try {
+    const { status, body: html } = await fetchAliExpressPage(productUrl);
+
+    if (status < 200 || status >= 400) {
+      return res.status(502).json({ error: `AliExpress returned HTTP ${status}` });
+    }
+
+    const title = extractAliExpressTitle(html);
+    if (!title) {
+      return res.status(502).json({ error: 'Could not extract a product title from the page (likely blocked by AliExpress anti-bot)' });
+    }
+
+    const db = getDb(req);
+    const now = new Date().toISOString();
+    if (componentId) {
+      db.prepare('UPDATE components SET name = ?, updated_at = ? WHERE id = ?').run(title, now, componentId);
+    }
+    if (orderItemId) {
+      db.prepare('UPDATE order_items SET product_title = ? WHERE id = ?').run(title, orderItemId);
+    }
+
+    res.json({ title, productId, success: true });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      return res.status(504).json({ error: 'Timed out fetching the AliExpress page' });
+    }
+    console.error('fetch-title error:', error);
+    res.status(500).json({ error: error?.message || 'Failed to fetch product title' });
+  }
+});
+
+/**
+ * Fetch an AliExpress page following redirects manually with cookie tracking.
+ *
+ * AliExpress bounces .com URLs through login.aliexpress.com/sync_cookie_read which
+ * sets cookies on each hop and re-redirects. node-fetch's automatic redirect
+ * follower hits its 20-redirect cap because it doesn't carry Set-Cookie forward
+ * (no cookie jar). We do redirects manually and accumulate cookies so the
+ * handshake completes and we land on the actual product page (often on
+ * aliexpress.us for US visitors).
+ */
+async function fetchAliExpressPage(
+  initialUrl: string,
+  maxRedirects = 20,
+  timeoutMs = 10000
+): Promise<{ status: number; body: string; finalUrl: string }> {
+  const cookieJar: Record<string, string> = {};
+  let url = initialUrl;
+
+  for (let i = 0; i <= maxRedirects; i++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const cookieHeader = Object.entries(cookieJar)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ');
+      const response = await fetch(url, {
+        signal: controller.signal as any,
+        redirect: 'manual',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+        },
+      });
+
+      // Accumulate Set-Cookie headers (name=value only; we ignore Path/Domain/Expires).
+      const setCookies = (response.headers as any).raw?.()['set-cookie'] || [];
+      for (const sc of setCookies as string[]) {
+        const pair = sc.split(';')[0];
+        const eq = pair.indexOf('=');
+        if (eq > 0) {
+          cookieJar[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+        }
+      }
+
+      if (response.status >= 300 && response.status < 400) {
+        const loc = response.headers.get('location');
+        if (!loc) {
+          return { status: response.status, body: await response.text(), finalUrl: url };
+        }
+        url = new URL(loc, url).toString();
+        continue;
+      }
+
+      return { status: response.status, body: await response.text(), finalUrl: url };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error(`Exceeded ${maxRedirects} redirects (last URL: ${url})`);
+}
+
+/**
+ * Extract the product title from an AliExpress product page HTML.
+ * Tries og:title first (most reliable), then twitter:title, then <title>.
+ * Strips common AliExpress suffixes.
+ */
+function extractAliExpressTitle(html: string): string | null {
+  const patterns = [
+    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+name=["']title["'][^>]+content=["']([^"']+)["']/i,
+    /<title[^>]*>([^<]+)<\/title>/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match) {
+      let title = match[1].trim();
+      // Strip common suffixes
+      title = title.replace(/\s*[-|–]\s*AliExpress.*$/i, '');
+      title = title.replace(/\s*\|\s*aliexpress\.com\s*$/i, '');
+      title = decodeHtmlEntities(title);
+      if (title && title.length > 3 && !/^aliexpress$/i.test(title)) {
+        return title;
+      }
+    }
+  }
+  return null;
+}
+
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
 
 /**
  * Get import history

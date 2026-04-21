@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, Package, Calendar, DollarSign, User, FileText, Hash, Edit, Trash2 } from 'lucide-react';
 import { Order } from '../types';
+import { resolveOrderItemImage } from '../utils/orderItemImage';
 
 interface OrderItem {
   id: string;
@@ -18,19 +19,6 @@ interface OrderItem {
   componentImageUrl?: string;
 }
 
-// Resolve the best available thumbnail URL for an order item.
-// Order item images are populated by AliExpress import; fall back to the
-// linked component's image_url for manually-created orders.
-function resolveItemImage(item: OrderItem): string | null {
-  if (item.localImagePath) return `/uploads/${item.localImagePath}`;
-  if (item.imageUrl) return item.imageUrl;
-  if (item.componentImageUrl) {
-    return item.componentImageUrl.startsWith('/') || item.componentImageUrl.startsWith('http')
-      ? item.componentImageUrl
-      : `/uploads/${item.componentImageUrl}`;
-  }
-  return null;
-}
 
 interface OrderWithItems extends Order {
   items: OrderItem[];
@@ -258,7 +246,7 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
             {/* Order Items */}
             <div className="detail-section">
               <h3 className="detail-section-title">Order Items</h3>
-              <div className="order-items-table">
+              <div className="order-items-table order-items-table--detail">
                 <div className="table-header">
                   <div className="table-cell">Image</div>
                   <div className="table-cell">Component</div>
@@ -269,7 +257,7 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                   <div className="table-cell">Notes</div>
                 </div>
                 {order.items.map(item => {
-                  const imageUrl = resolveItemImage(item);
+                  const imageUrl = resolveOrderItemImage(item);
                   const displayName = item.productTitle || item.componentName;
                   return (
                     <div key={item.id} className="table-row">

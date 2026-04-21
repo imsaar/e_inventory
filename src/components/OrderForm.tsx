@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Search, Package } from 'lucide-react';
+import { X, Plus, Trash2, Search, Package, ExternalLink, RefreshCw } from 'lucide-react';
 import { Component, Order } from '../types';
+import { resolveOrderItemImage } from '../utils/orderItemImage';
+
+const PLACEHOLDER_TITLE_PATTERN = /^AliExpress item \d+/i;
 
 interface OrderItem {
   id: string;
@@ -10,6 +13,11 @@ interface OrderItem {
   quantity: number;
   unitCost: number;
   totalCost: number;
+  productTitle?: string;
+  productUrl?: string;
+  imageUrl?: string;
+  localImagePath?: string;
+  componentImageUrl?: string;
 }
 
 interface OrderFormProps {
@@ -35,6 +43,8 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
   const [selectedItemIndex, setSelectedItemIndex] = useState<number>(-1);
   const [loading, setLoading] = useState(false);
   const [componentsLoading, setComponentsLoading] = useState(true);
+  const [fetchingTitleId, setFetchingTitleId] = useState<string | null>(null);
+  const [fetchTitleErrors, setFetchTitleErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadComponents();
@@ -66,7 +76,12 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
         componentPartNumber: item.componentPartNumber,
         quantity: item.quantity,
         unitCost: item.unitCost,
-        totalCost: item.unitCost * item.quantity
+        totalCost: item.unitCost * item.quantity,
+        productTitle: item.productTitle,
+        productUrl: item.productUrl,
+        imageUrl: item.imageUrl,
+        localImagePath: item.localImagePath,
+        componentImageUrl: item.componentImageUrl,
       }));
       setItems(formItems);
     } catch (error) {
@@ -120,6 +135,48 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
   const removeItem = (index: number) => {
     const newItems = items.filter((_, i) => i !== index);
     setItems(newItems);
+  };
+
+  // Fetch the real product title from AliExpress for a placeholder item.
+  // Updates the linked component name + the order item's product_title server-side,
+  // then reflects the new title in local form state. Failures (anti-bot blocks,
+  // timeouts) are surfaced inline next to the row.
+  const handleFetchTitle = async (item: OrderItem, index: number) => {
+    if (!item.productUrl) return;
+    setFetchingTitleId(item.id);
+    setFetchTitleErrors(prev => {
+      const { [item.id]: _, ...rest } = prev;
+      return rest;
+    });
+    try {
+      const response = await fetch('/api/import/aliexpress/fetch-title', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productUrl: item.productUrl,
+          componentId: item.componentId || undefined,
+          orderItemId: item.id,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Request failed with ${response.status}`);
+      }
+      const newItems = [...items];
+      newItems[index] = {
+        ...newItems[index],
+        componentName: data.title,
+        productTitle: data.title,
+      };
+      setItems(newItems);
+    } catch (err) {
+      setFetchTitleErrors(prev => ({
+        ...prev,
+        [item.id]: err instanceof Error ? err.message : 'Failed to fetch title',
+      }));
+    } finally {
+      setFetchingTitleId(null);
+    }
   };
 
   const selectComponent = (component: Component, itemIndex: number) => {
@@ -320,15 +377,65 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
                     <div className="table-cell">Actions</div>
                   </div>
                   
-                  {items.map((item, index) => (
+                  {items.map((item, index) => {
+                    const imageUrl = resolveOrderItemImage(item);
+                    const displayName = item.productTitle || item.componentName;
+                    return (
                     <div key={item.id} className="table-row">
                       <div className="table-cell">
                         {item.componentId ? (
-                          <div className="component-info">
-                            <span className="component-name">{item.componentName}</span>
-                            {item.componentPartNumber && (
-                              <span className="component-part">{item.componentPartNumber}</span>
+                          <div className="order-form-component-cell">
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={displayName}
+                                className="order-item-thumbnail"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div className="order-item-thumbnail order-item-thumbnail-empty">
+                                <Package size={20} />
+                              </div>
                             )}
+                            <div className="component-info">
+                              {item.productUrl ? (
+                                <a
+                                  href={item.productUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="component-name component-name-link"
+                                  title="View on AliExpress"
+                                >
+                                  {displayName}
+                                  <ExternalLink size={12} />
+                                </a>
+                              ) : (
+                                <span className="component-name">{displayName}</span>
+                              )}
+                              {item.componentPartNumber && (
+                                <span className="component-part">{item.componentPartNumber}</span>
+                              )}
+                              {item.productUrl && PLACEHOLDER_TITLE_PATTERN.test(displayName) && (
+                                <button
+                                  type="button"
+                                  className="fetch-title-btn"
+                                  onClick={() => handleFetchTitle(item, index)}
+                                  disabled={fetchingTitleId === item.id}
+                                  title="Fetch product title from AliExpress"
+                                >
+                                  <RefreshCw
+                                    size={12}
+                                    className={fetchingTitleId === item.id ? 'spin' : ''}
+                                  />
+                                  {fetchingTitleId === item.id ? 'Fetching…' : 'Fetch title'}
+                                </button>
+                              )}
+                              {fetchTitleErrors[item.id] && (
+                                <span className="fetch-title-error">{fetchTitleErrors[item.id]}</span>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <button
@@ -381,7 +488,8 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 

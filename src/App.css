@@ -4102,8 +4102,14 @@ label.btn {
 .table-header,
 .table-row {
   display: grid;
-  grid-template-columns: 60px 2fr 100px 80px 100px 100px 1fr;
+  grid-template-columns: 2fr 100px 120px 100px 80px;
   gap: var(--spacing-sm);
+}
+
+/* Detail view adds an Image column and a Notes column → 7-column layout. */
+.order-items-table--detail .table-header,
+.order-items-table--detail .table-row {
+  grid-template-columns: 60px 2fr 100px 80px 100px 100px 1fr;
   align-items: center;
 }
 
@@ -4121,6 +4127,78 @@ label.btn {
   align-items: center;
   justify-content: center;
   color: #999;
+}
+
+/* Compact thumbnail + name layout in the order edit form's Component cell */
+.order-form-component-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.order-form-component-cell .order-item-thumbnail {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.order-form-component-cell .component-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.component-name-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-color, #2E7D32);
+  text-decoration: none;
+}
+
+.component-name-link:hover {
+  text-decoration: underline;
+}
+
+.fetch-title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--accent-color, #2E7D32);
+  border: 1px solid var(--accent-color, #2E7D32);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.fetch-title-btn:hover:not(:disabled) {
+  background: var(--accent-color, #2E7D32);
+  color: white;
+}
+
+.fetch-title-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.fetch-title-error {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #d32f2f;
+}
+
+@keyframes order-form-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.fetch-title-btn .spin {
+  animation: order-form-spin 1s linear infinite;
 }
 
 .table-header {
@@ -4415,8 +4493,13 @@ label.btn {
   
   .table-header,
   .table-row {
-    grid-template-columns: 44px 1.5fr 80px 60px 80px 80px 1fr;
+    grid-template-columns: 1.5fr 80px 100px 80px 60px;
     gap: var(--spacing-xs);
+  }
+
+  .order-items-table--detail .table-header,
+  .order-items-table--detail .table-row {
+    grid-template-columns: 44px 1.5fr 80px 60px 80px 80px 1fr;
   }
 
   .order-item-thumbnail {
