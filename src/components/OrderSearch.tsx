@@ -8,6 +8,7 @@ interface OrderFilters {
   dateTo?: string;
   minAmount?: number;
   maxAmount?: number;
+  minItemCount?: number;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }
@@ -161,6 +162,17 @@ export function OrderSearch({
               className="filter-input"
               min="0"
             />
+          </div>
+
+          <div className="filter-group filter-group-checkbox">
+            <label className="filter-checkbox-label">
+              <input
+                type="checkbox"
+                checked={(filters.minItemCount ?? 0) >= 2}
+                onChange={(e) => handleFilterChange('minItemCount', e.target.checked ? 2 : undefined)}
+              />
+              Multi-item orders only
+            </label>
           </div>
 
           <div className="filter-group">

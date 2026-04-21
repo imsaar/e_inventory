@@ -58,7 +58,7 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ⚡ **Performance & Network Improvements (September 2025)** - Fixed Vite development server network accessibility, achieved sub-millisecond API response times, and implemented comprehensive testing suite with 230+ tests including full AliExpress import functionality coverage.
 
-🛒 **Order Management System (January 2025)** - Complete order tracking with supplier management, comprehensive order forms with real-time cost calculations, advanced search and filtering, and detailed order views with full component breakdowns.
+🛒 **Order Management System (January 2025)** - Complete order tracking with supplier management, comprehensive order forms with real-time cost calculations, advanced search and filtering (including a "Multi-item orders only" filter for isolating imported AliExpress orders with more than one product), and detailed order views with full component breakdowns.
 
 🔍 **Enhanced Search Experience (January 2025)** - Advanced search functionality across all pages with real-time filtering, multi-parameter search on components and orders, intelligent sorting options, and responsive search interfaces optimized for mobile and desktop.
 
@@ -151,7 +151,7 @@ A comprehensive web-based inventory management system designed specifically for 
 - `GET /api/projects/:id/boms` - List project BOMs
 
 ### Orders
-- `GET /api/orders` - List all orders with advanced search and filtering
+- `GET /api/orders` - List all orders with advanced search and filtering. Query params: `term`, `status`, `supplier`, `dateFrom`, `dateTo`, `minAmount`, `maxAmount`, `minItemCount` (e.g. `minItemCount=2` returns only multi-item orders), `sortBy`, `sortOrder`
 - `GET /api/orders/:id` - Get order details with all order items
 - `POST /api/orders` - Create new order with component items
 - `PUT /api/orders/:id` - Update order information

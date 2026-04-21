@@ -74,16 +74,17 @@ router.get('/', (req, res) => {
   try {
     const db = getDb(req);
     
-    const { 
-      term, 
-      status, 
-      supplier, 
-      dateFrom, 
-      dateTo, 
-      minAmount, 
-      maxAmount, 
-      sortBy = 'order_date', 
-      sortOrder = 'desc' 
+    const {
+      term,
+      status,
+      supplier,
+      dateFrom,
+      dateTo,
+      minAmount,
+      maxAmount,
+      minItemCount,
+      sortBy = 'order_date',
+      sortOrder = 'desc'
     } = req.query;
 
     let query = `
@@ -144,6 +145,14 @@ router.get('/', (req, res) => {
       havingConditions.push(`(o.total_amount <= ? OR SUM(oi.total_cost) <= ?)`);
       const maxVal = parseFloat(maxAmount);
       params.push(maxVal, maxVal);
+    }
+    // Item count filter — e.g. minItemCount=2 returns only multi-item orders
+    if (minItemCount && typeof minItemCount === 'string') {
+      const n = parseInt(minItemCount, 10);
+      if (Number.isFinite(n) && n > 0) {
+        havingConditions.push(`COUNT(oi.id) >= ?`);
+        params.push(n);
+      }
     }
     if (havingConditions.length > 0) {
       query += ` HAVING ${havingConditions.join(' AND ')}`;

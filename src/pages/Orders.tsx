@@ -14,6 +14,7 @@ interface OrderFilters {
   dateTo?: string;
   minAmount?: number;
   maxAmount?: number;
+  minItemCount?: number;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }

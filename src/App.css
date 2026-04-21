@@ -3547,6 +3547,26 @@ label.btn {
   margin-bottom: var(--spacing-md);
 }
 
+.filter-group-checkbox {
+  justify-content: flex-end;
+}
+
+.filter-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.filter-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 .filter-label {
   font-weight: 500;
   color: var(--text-color);
