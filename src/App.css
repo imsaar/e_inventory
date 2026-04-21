@@ -389,6 +389,70 @@ body {
   margin-top: var(--spacing-xs);
 }
 
+/* Multi-window breakdown card (e.g. Order Value across 7d / 30d / 12mo / all-time) */
+.stat-card-breakdown {
+  grid-column: span 2;
+  align-items: flex-start;
+}
+
+.stat-card-breakdown .stat-label {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+  margin-top: 0;
+}
+
+.stat-breakdown-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.stat-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.stat-breakdown-row .stat-breakdown-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-breakdown-total {
+  padding-top: var(--spacing-xs);
+  border-top: 1px solid var(--border-light);
+  margin-top: var(--spacing-xs);
+}
+
+.stat-breakdown-total .stat-breakdown-label {
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.stat-breakdown-total .stat-breakdown-value {
+  font-size: 20px;
+  color: var(--primary-color);
+}
+
+@media (max-width: 1024px) {
+  .stat-card-breakdown {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .stat-card-breakdown {
+    grid-column: span 1;
+  }
+}
+
 /* Component Grid */
 .component-grid, .components-container {
   display: grid;

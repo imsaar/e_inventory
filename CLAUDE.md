@@ -125,6 +125,8 @@ The AliExpress import system has three sibling parsers feeding into one orchestr
 
 **Shared table grid pitfall**: `OrderDetailView` uses 7 columns (Image / Component / Part / Qty / Unit / Total / Notes) while `OrderForm` uses 5 (Component / Qty / Unit / Total / Actions). They share `.order-items-table > .table-header / .table-row` CSS. The detail view scopes its 7-column grid via the `.order-items-table--detail` modifier on its outer div — keep this scoping if you change either grid, or the cells will overlap.
 
+**Status updates on re-import**: When an order already exists (matched on `order_number`), the importer does not create a duplicate but *will* advance its status if the freshly-parsed status is further along the lifecycle. Policy lives in `shouldUpdateStatus` in `server/routes/import.ts`: forward progression only through `pending → ordered → shipped → delivered`, `cancelled` is always accepted (user cancelled), and `cancelled`/`delivered` never regress to earlier states. The endpoint bumps `results.statusUpdated` for surfaced counts.
+
 ### Vite Proxy Configuration
 Frontend development requires proxying both API and static file requests:
 ```typescript

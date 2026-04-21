@@ -12,6 +12,9 @@ interface DashboardStats {
   lowStockCount: number;
   totalValue: number;
   totalOrderValue: number;
+  totalOrderValueLast7Days: number;
+  totalOrderValueLast30Days: number;
+  totalOrderValueLast12Months: number;
 }
 
 export function Dashboard() {
@@ -23,7 +26,10 @@ export function Dashboard() {
     pendingOrders: 0,
     lowStockCount: 0,
     totalValue: 0,
-    totalOrderValue: 0
+    totalOrderValue: 0,
+    totalOrderValueLast7Days: 0,
+    totalOrderValueLast30Days: 0,
+    totalOrderValueLast12Months: 0
   });
   const [lowStockComponents, setLowStockComponents] = useState<Component[]>([]);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
@@ -57,9 +63,25 @@ export function Dashboard() {
         sum + (comp.totalCost || 0), 0
       ) : 0;
 
-      const totalOrderValue = Array.isArray(orders) ? orders.reduce((sum: number, order: any) => 
+      const totalOrderValue = Array.isArray(orders) ? orders.reduce((sum: number, order: any) =>
         sum + (order.totalAmount || order.calculatedTotal || 0), 0
       ) : 0;
+
+      const now = new Date();
+      const sevenDaysAgo = new Date(now); sevenDaysAgo.setDate(now.getDate() - 7);
+      const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 30);
+      const twelveMonthsAgo = new Date(now); twelveMonthsAgo.setMonth(now.getMonth() - 12);
+
+      const sumOrdersSince = (since: Date) =>
+        Array.isArray(orders)
+          ? orders
+              .filter((order: any) => order.orderDate && new Date(order.orderDate) >= since)
+              .reduce((sum: number, order: any) => sum + (order.totalAmount || order.calculatedTotal || 0), 0)
+          : 0;
+
+      const totalOrderValueLast7Days = sumOrdersSince(sevenDaysAgo);
+      const totalOrderValueLast30Days = sumOrdersSince(thirtyDaysAgo);
+      const totalOrderValueLast12Months = sumOrdersSince(twelveMonthsAgo);
 
       // Count orders that are not delivered (pending delivery)
       const pendingOrders = Array.isArray(orders) ? orders.filter((order: any) => 
@@ -74,7 +96,10 @@ export function Dashboard() {
         pendingOrders,
         lowStockCount: Array.isArray(lowStock) ? lowStock.length : 0,
         totalValue,
-        totalOrderValue
+        totalOrderValue,
+        totalOrderValueLast7Days,
+        totalOrderValueLast30Days,
+        totalOrderValueLast12Months
       });
 
       setLowStockComponents(Array.isArray(lowStock) ? lowStock.slice(0, 5) : []);
@@ -92,7 +117,10 @@ export function Dashboard() {
         pendingOrders: 0,
         lowStockCount: 0,
         totalValue: 0,
-        totalOrderValue: 0
+        totalOrderValue: 0,
+        totalOrderValueLast7Days: 0,
+        totalOrderValueLast30Days: 0,
+        totalOrderValueLast12Months: 0
       });
       // Try to load database info separately
       try {
@@ -382,13 +410,30 @@ Type "FACTORY RESET" below to confirm:`;
               </div>
             </div>
 
-            <div className="stat-card">
+            <div className="stat-card stat-card-breakdown">
               <div className="stat-icon">
                 <TrendingUp size={32} />
               </div>
               <div className="stat-content">
-                <div className="stat-value">${stats.totalOrderValue.toFixed(2)}</div>
-                <div className="stat-label">Total Order Value</div>
+                <div className="stat-label">Order Value</div>
+                <div className="stat-breakdown-rows">
+                  <div className="stat-breakdown-row">
+                    <span className="stat-breakdown-label">Last 7 Days</span>
+                    <span className="stat-breakdown-value">${stats.totalOrderValueLast7Days.toFixed(2)}</span>
+                  </div>
+                  <div className="stat-breakdown-row">
+                    <span className="stat-breakdown-label">Last 30 Days</span>
+                    <span className="stat-breakdown-value">${stats.totalOrderValueLast30Days.toFixed(2)}</span>
+                  </div>
+                  <div className="stat-breakdown-row">
+                    <span className="stat-breakdown-label">Last 12 Months</span>
+                    <span className="stat-breakdown-value">${stats.totalOrderValueLast12Months.toFixed(2)}</span>
+                  </div>
+                  <div className="stat-breakdown-row stat-breakdown-total">
+                    <span className="stat-breakdown-label">All Time</span>
+                    <span className="stat-breakdown-value">${stats.totalOrderValue.toFixed(2)}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

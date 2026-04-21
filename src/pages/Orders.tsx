@@ -129,8 +129,15 @@ export function Orders() {
     triggerRefresh();
     
     // Show import results notification
-    if (results.imported > 0) {
-      alert(`Successfully imported ${results.imported} orders with ${results.componentIds.length} components!`);
+    if (results.imported > 0 || results.statusUpdated > 0) {
+      const parts: string[] = [];
+      if (results.imported > 0) {
+        parts.push(`imported ${results.imported} orders with ${results.componentIds.length} components`);
+      }
+      if (results.statusUpdated > 0) {
+        parts.push(`updated status on ${results.statusUpdated} existing order${results.statusUpdated === 1 ? '' : 's'}`);
+      }
+      alert(`Import complete — ${parts.join(' and ')}.`);
     }
   };
 

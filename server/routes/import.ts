@@ -223,13 +223,14 @@ router.post('/aliexpress/import', async (req, res) => {
     const results = {
       imported: 0,
       skipped: 0,
+      statusUpdated: 0,
       errors: [] as string[],
       orderIds: [] as string[],
       componentIds: [] as string[]
     };
 
     const db = getDb(req);
-    
+
     // Begin transaction
     db.exec('BEGIN TRANSACTION');
 
@@ -239,10 +240,25 @@ router.post('/aliexpress/import', async (req, res) => {
           // Check if order already exists. Keyed on order_number alone so a
           // seller renaming their AliExpress store doesn't slip past dedup.
           const existingOrder = db.prepare(`
-            SELECT id FROM orders WHERE order_number = ?
-          `).get(orderData.orderNumber);
+            SELECT id, status FROM orders WHERE order_number = ?
+          `).get(orderData.orderNumber) as { id: string; status: string } | undefined;
 
           if (existingOrder && !importOptions?.allowDuplicates) {
+            // Re-import of a known order: update status if the freshly parsed
+            // value differs (e.g. was "shipped" at first import, now "delivered").
+            const incomingStatus = mapOrderStatus(orderData.status);
+            if (
+              incomingStatus &&
+              incomingStatus !== existingOrder.status &&
+              shouldUpdateStatus(existingOrder.status, incomingStatus)
+            ) {
+              db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(
+                incomingStatus,
+                new Date().toISOString(),
+                existingOrder.id
+              );
+              results.statusUpdated++;
+            }
             results.skipped++;
             continue;
           }
@@ -341,7 +357,7 @@ router.post('/aliexpress/import', async (req, res) => {
       // Commit transaction
       db.exec('COMMIT');
 
-      console.log(`Import completed: ${results.imported} orders imported, ${results.skipped} skipped`);
+      console.log(`Import completed: ${results.imported} imported, ${results.skipped} skipped, ${results.statusUpdated} statuses updated`);
       console.log(`Components created: ${results.componentIds.length}`);
       console.log(`Component IDs:`, results.componentIds);
       console.log(`Errors:`, results.errors);
@@ -642,6 +658,26 @@ function mapOrderStatus(aliExpressStatus: string | undefined): string {
   if (status.includes('pending') || status.includes('processing')) return 'pending';
   if (status.includes('cancelled')) return 'cancelled';
   return 'ordered';
+}
+
+// Decide whether an imported status should overwrite an existing one.
+// Enforces forward progress through pending → ordered → shipped → delivered so
+// re-importing a stale webarchive can't regress a delivered order. 'cancelled'
+// is allowed in from anywhere (user cancelled) but a cancelled order won't
+// revert to an earlier lifecycle state.
+function shouldUpdateStatus(existing: string, incoming: string): boolean {
+  if (existing === incoming) return false;
+  if (incoming === 'cancelled') return true;
+  if (existing === 'cancelled') return false;
+  const rank: Record<string, number> = {
+    pending: 0,
+    ordered: 1,
+    shipped: 2,
+    delivered: 3,
+  };
+  const existingRank = rank[existing] ?? 0;
+  const incomingRank = rank[incoming] ?? 0;
+  return incomingRank > existingRank;
 }
 
 export default router;

@@ -130,7 +130,12 @@
 │ For each order in batch:                                                   │
 │ ├── Check for existing order (by order_number only — supplier renames      │
 │ │   on the AliExpress side don't defeat dedup)                             │
-│ ├── Skip if duplicate and allowDuplicates = false                          │
+│ ├── If duplicate and allowDuplicates = false:                              │
+│ │   ├── Compare existing status to freshly parsed status                   │
+│ │   ├── If forward-progress (via shouldUpdateStatus — pending → ordered    │
+│ │   │   → shipped → delivered; cancelled always wins; no regression from   │
+│ │   │   delivered or cancelled), UPDATE orders.status + updated_at         │
+│ │   └── Bump results.statusUpdated, skip item creation, continue           │
 │ ├── Generate unique order ID: ord_${timestamp}_${random}                   │
 │ ├── Insert into orders table:                                              │
 │ │   ├── id, order_date, supplier, order_number                             │
@@ -177,6 +182,7 @@
 │   results: {                                                               │
 │     imported: number,        // Successfully imported orders               │
 │     skipped: number,         // Skipped duplicate orders                   │
+│     statusUpdated: number,   // Existing orders whose status advanced      │
 │     errors: string[],        // Error messages                             │
 │     orderIds: string[],      // Generated order IDs                        │
 │     componentIds: string[]   // Generated component IDs                    │

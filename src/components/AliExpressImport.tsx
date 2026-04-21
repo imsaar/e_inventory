@@ -298,7 +298,7 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
         batches.push(selectedOrderData.slice(i, i + batchSize));
       }
 
-      let allResults = { imported: 0, skipped: 0, errors: [], orderIds: [], componentIds: [] };
+      let allResults = { imported: 0, skipped: 0, statusUpdated: 0, errors: [], orderIds: [], componentIds: [] };
 
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
@@ -330,6 +330,7 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
         // Merge batch results
         allResults.imported += batchResults.results.imported;
         allResults.skipped += batchResults.results.skipped;
+        allResults.statusUpdated += batchResults.results.statusUpdated || 0;
         allResults.errors.push(...batchResults.results.errors);
         allResults.orderIds.push(...batchResults.results.orderIds);
         allResults.componentIds.push(...batchResults.results.componentIds);
@@ -412,6 +413,16 @@ export function AliExpressImport({ onImportComplete, onClose }: AliExpressImport
                     <div>
                       <div className="stat-value">{importResults.skipped}</div>
                       <div className="stat-label">Orders Skipped</div>
+                    </div>
+                  </div>
+                )}
+
+                {importResults.statusUpdated > 0 && (
+                  <div className="result-stat">
+                    <CheckCircle size={20} />
+                    <div>
+                      <div className="stat-value">{importResults.statusUpdated}</div>
+                      <div className="stat-label">Statuses Updated</div>
                     </div>
                   </div>
                 )}
