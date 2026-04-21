@@ -236,10 +236,11 @@ router.post('/aliexpress/import', async (req, res) => {
     try {
       for (const orderData of orders) {
         try {
-          // Check if order already exists
+          // Check if order already exists. Keyed on order_number alone so a
+          // seller renaming their AliExpress store doesn't slip past dedup.
           const existingOrder = db.prepare(`
-            SELECT id FROM orders WHERE order_number = ? AND supplier = ?
-          `).get(orderData.orderNumber, orderData.supplier);
+            SELECT id FROM orders WHERE order_number = ?
+          `).get(orderData.orderNumber);
 
           if (existingOrder && !importOptions?.allowDuplicates) {
             results.skipped++;

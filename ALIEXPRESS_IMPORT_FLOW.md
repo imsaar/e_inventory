@@ -128,7 +128,8 @@
 │ BEGIN TRANSACTION                                                           │
 │                                                                             │
 │ For each order in batch:                                                   │
-│ ├── Check for existing order (by order_number + supplier)                  │
+│ ├── Check for existing order (by order_number only — supplier renames      │
+│ │   on the AliExpress side don't defeat dedup)                             │
 │ ├── Skip if duplicate and allowDuplicates = false                          │
 │ ├── Generate unique order ID: ord_${timestamp}_${random}                   │
 │ ├── Insert into orders table:                                              │
