@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 9;
+const CURRENT_SCHEMA_VERSION = 10;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -601,6 +601,42 @@ function runMigrations() {
       console.log('Migration to version 9 completed successfully');
     } catch (error: any) {
       console.error('Migration to version 9 failed:', error);
+      throw error;
+    }
+  }
+
+  // Migration to version 10: Heal storage_locations schema. Earlier dev DBs
+  // can land in a state where schema_version says migrations 2-4 ran but
+  // the table is missing the columns those migrations were supposed to add
+  // (e.g. after a Factory Reset re-created the table from a stale CREATE
+  // statement while leaving schema_version intact). Reconcile by inspecting
+  // PRAGMA table_info and adding anything missing — idempotent, safe to
+  // re-run.
+  if (currentVersion < 10) {
+    console.log('Running migration to version 10: Heal storage_locations schema');
+    try {
+      const cols = (db.prepare('PRAGMA table_info(storage_locations)').all() as any[]).map((c: any) => c.name);
+      const ensure = (name: string, ddl: string) => {
+        if (!cols.includes(name)) {
+          db.exec(`ALTER TABLE storage_locations ADD COLUMN ${ddl}`);
+          cols.push(name);
+          console.log(`  added storage_locations.${name}`);
+        }
+      };
+      ensure('qr_code', 'qr_code TEXT');
+      ensure('coordinates_x', 'coordinates_x REAL');
+      ensure('coordinates_y', 'coordinates_y REAL');
+      ensure('coordinates_z', 'coordinates_z REAL');
+      ensure('photo_url', 'photo_url TEXT');
+      ensure('qr_size', "qr_size TEXT DEFAULT 'medium'");
+      ensure('tags', 'tags TEXT');
+      // Replicate the original CREATE's UNIQUE constraint on qr_code via a
+      // partial unique index (ALTER TABLE ADD COLUMN can't carry UNIQUE).
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_storage_locations_qr_code ON storage_locations(qr_code) WHERE qr_code IS NOT NULL');
+      db.exec('INSERT INTO schema_version (version) VALUES (10)');
+      console.log('Migration to version 10 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 10 failed:', error);
       throw error;
     }
   }

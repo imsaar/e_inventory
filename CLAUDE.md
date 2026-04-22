@@ -15,6 +15,9 @@ A production-ready web-based inventory management system for electronics hobbyis
 npm run dev        # Start both frontend (5173) and backend (3001)  
 npm run client     # Frontend dev server only (Vite)
 npm run server     # Backend API server only (Express + nodemon with ts-node)
+                   # nodemon.json watches *.ts/*.js/*.json under server/ —
+                   # if you ever add new server file types or sources, update
+                   # the `ext` field there or saves won't trigger a reload.
 
 # Code Quality
 npm run lint       # ESLint code analysis
@@ -154,7 +157,9 @@ server: {
 ```
 
 ### Database Schema Evolution
-Current schema version: 9 (automatic migrations handle upgrades)
+Current schema version: 10 (automatic migrations handle upgrades)
+
+**Self-healing schema migration (v10)**: dev DBs occasionally land in a state where `schema_version` records a high version but the underlying `storage_locations` table is missing columns earlier migrations were supposed to add (e.g. after a Factory Reset re-created the table from a stale `CREATE` while leaving `schema_version` intact). v10 introspects with `PRAGMA table_info` and idempotently `ALTER TABLE ... ADD COLUMN` any of `qr_code / coordinates_x / coordinates_y / coordinates_z / photo_url / qr_size / tags` that aren't present, plus creates a partial unique index for `qr_code` (since `ALTER TABLE ADD COLUMN` can't carry the `UNIQUE` constraint that the original `CREATE` had). When you write new column-add migrations, prefer this pattern (PRAGMA-guarded, not just version-counter-gated) so column drift across DBs heals automatically.
 - **Database Path Logic**: Test environment uses unique DB per run, dev uses `inventory-dev.db`, production uses `inventory.db`
 - **Migration System**: Located in `server/database.ts`, automatically runs on startup
 - **Foreign Keys**: ENABLED - all deletions must check dependencies via `project_components`, `order_items` tables
