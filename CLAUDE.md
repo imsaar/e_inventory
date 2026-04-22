@@ -157,12 +157,13 @@ server: {
 ```
 
 ### Database Schema Evolution
-Current schema version: 11 (automatic migrations handle upgrades)
+Current schema version: 12 (automatic migrations handle upgrades)
 
-**Self-healing schema migrations (v10, v11)**: dev DBs occasionally land in a state where `schema_version` records a high version but the underlying tables are missing columns earlier migrations were supposed to add (e.g. after a Factory Reset re-created tables from stale `CREATE`s while leaving `schema_version` intact). The self-healing migrations introspect with `PRAGMA table_info` and idempotently `ALTER TABLE ... ADD COLUMN` any missing columns:
+**Self-healing schema migrations (v10, v11, v12)**: dev DBs occasionally land in a state where `schema_version` records a high version but the underlying tables are missing columns earlier migrations were supposed to add (e.g. after a Factory Reset re-created tables from stale `CREATE`s while leaving `schema_version` intact). The self-healing migrations introspect with `PRAGMA table_info` and idempotently `ALTER TABLE ... ADD COLUMN` any missing columns:
 
 - **v10** heals `storage_locations` (`qr_code`, `coordinates_x/y/z`, `photo_url`, `qr_size`, `tags`) and creates a partial unique index for `qr_code` since `ALTER TABLE ADD COLUMN` can't carry `UNIQUE`.
 - **v11** heals `projects` (`start_date`, `completed_date`, `notes`, `tags`).
+- **v12** heals `components` (`dimensions`, `weight`, `voltage`, `current`, `pin_count`, `protocols`, `supplier` — the columns v8 was supposed to add).
 
 When you write new column-add migrations, prefer this pattern (PRAGMA-guarded, not just version-counter-gated) so column drift across DBs heals automatically.
 - **Database Path Logic**: Test environment uses unique DB per run, dev uses `inventory-dev.db`, production uses `inventory.db`

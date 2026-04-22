@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -664,6 +664,36 @@ function runMigrations() {
       console.log('Migration to version 11 completed successfully');
     } catch (error: any) {
       console.error('Migration to version 11 failed:', error);
+      throw error;
+    }
+  }
+
+  // Migration to version 12: Heal components schema. Same self-healing
+  // pattern — re-applies the columns v8 was supposed to add (dimensions,
+  // weight, voltage, current, pin_count, protocols, supplier) for any DB
+  // where v8 ran without actually applying the ALTERs.
+  if (currentVersion < 12) {
+    console.log('Running migration to version 12: Heal components schema');
+    try {
+      const cols = (db.prepare('PRAGMA table_info(components)').all() as any[]).map((c: any) => c.name);
+      const ensure = (name: string, ddl: string) => {
+        if (!cols.includes(name)) {
+          db.exec(`ALTER TABLE components ADD COLUMN ${ddl}`);
+          cols.push(name);
+          console.log(`  added components.${name}`);
+        }
+      };
+      ensure('dimensions', 'dimensions TEXT');
+      ensure('weight', 'weight TEXT');
+      ensure('voltage', 'voltage TEXT');
+      ensure('current', 'current TEXT');
+      ensure('pin_count', 'pin_count INTEGER');
+      ensure('protocols', 'protocols TEXT');
+      ensure('supplier', 'supplier TEXT');
+      db.exec('INSERT INTO schema_version (version) VALUES (12)');
+      console.log('Migration to version 12 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 12 failed:', error);
       throw error;
     }
   }
