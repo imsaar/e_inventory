@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -637,6 +637,33 @@ function runMigrations() {
       console.log('Migration to version 10 completed successfully');
     } catch (error: any) {
       console.error('Migration to version 10 failed:', error);
+      throw error;
+    }
+  }
+
+  // Migration to version 11: Heal projects schema. Same self-healing
+  // pattern as v10 — some dev DBs have a projects table missing the
+  // start_date / completed_date / notes (from the v1 CREATE) and tags
+  // (from v3) columns that the route's INSERT writes to.
+  if (currentVersion < 11) {
+    console.log('Running migration to version 11: Heal projects schema');
+    try {
+      const cols = (db.prepare('PRAGMA table_info(projects)').all() as any[]).map((c: any) => c.name);
+      const ensure = (name: string, ddl: string) => {
+        if (!cols.includes(name)) {
+          db.exec(`ALTER TABLE projects ADD COLUMN ${ddl}`);
+          cols.push(name);
+          console.log(`  added projects.${name}`);
+        }
+      };
+      ensure('start_date', 'start_date TEXT');
+      ensure('completed_date', 'completed_date TEXT');
+      ensure('notes', 'notes TEXT');
+      ensure('tags', 'tags TEXT');
+      db.exec('INSERT INTO schema_version (version) VALUES (11)');
+      console.log('Migration to version 11 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 11 failed:', error);
       throw error;
     }
   }
