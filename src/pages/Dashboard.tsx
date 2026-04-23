@@ -63,9 +63,21 @@ export function Dashboard() {
         sum + (comp.totalCost || 0), 0
       ) : 0;
 
-      const totalOrderValue = Array.isArray(orders) ? orders.reduce((sum: number, order: any) =>
-        sum + (order.totalAmount || order.calculatedTotal || 0), 0
-      ) : 0;
+      // Spend totals exclude cancelled orders — money from cancelled orders
+      // was refunded so it shouldn't count against spend.
+      const spendableOrders = Array.isArray(orders)
+        ? orders.filter((order: any) => order.status !== 'cancelled')
+        : [];
+
+      // Sum from the API's calculatedTotal (SUM of order_items.total_cost)
+      // plus stored tax. Using calculatedTotal instead of the cached
+      // totalAmount avoids drift if a user manually edits line items
+      // after import. Tax is added explicitly since calculatedTotal is
+      // items-only.
+      const orderCost = (order: any) =>
+        (Number(order.calculatedTotal) || 0) + (Number(order.tax) || 0);
+
+      const totalOrderValue = spendableOrders.reduce((sum: number, order: any) => sum + orderCost(order), 0);
 
       const now = new Date();
       const sevenDaysAgo = new Date(now); sevenDaysAgo.setDate(now.getDate() - 7);
@@ -73,19 +85,18 @@ export function Dashboard() {
       const twelveMonthsAgo = new Date(now); twelveMonthsAgo.setMonth(now.getMonth() - 12);
 
       const sumOrdersSince = (since: Date) =>
-        Array.isArray(orders)
-          ? orders
-              .filter((order: any) => order.orderDate && new Date(order.orderDate) >= since)
-              .reduce((sum: number, order: any) => sum + (order.totalAmount || order.calculatedTotal || 0), 0)
-          : 0;
+        spendableOrders
+          .filter((order: any) => order.orderDate && new Date(order.orderDate) >= since)
+          .reduce((sum: number, order: any) => sum + orderCost(order), 0);
 
       const totalOrderValueLast7Days = sumOrdersSince(sevenDaysAgo);
       const totalOrderValueLast30Days = sumOrdersSince(thirtyDaysAgo);
       const totalOrderValueLast12Months = sumOrdersSince(twelveMonthsAgo);
 
-      // Count orders that are not delivered (pending delivery)
-      const pendingOrders = Array.isArray(orders) ? orders.filter((order: any) => 
-        order.status !== 'delivered'
+      // Count orders that are not delivered *and* not cancelled — cancelled
+      // orders aren't pending delivery either.
+      const pendingOrders = Array.isArray(orders) ? orders.filter((order: any) =>
+        order.status !== 'delivered' && order.status !== 'cancelled'
       ).length : 0;
 
       setStats({
