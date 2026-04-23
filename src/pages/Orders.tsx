@@ -293,6 +293,38 @@ export function Orders() {
         loading={searchLoading}
       />
 
+      {/* Filtered summary — totals reflect what's currently visible (respects
+          search + filters + multi-item toggle). Total cost uses the same
+          calculatedTotal + tax expression as the summary cards + dashboard. */}
+      {orders.length > 0 && (() => {
+        const totalItems = orders.reduce((sum, o) => sum + ((o as any).itemCount || 0), 0);
+        // Cost excludes cancelled orders — refunded money shouldn't inflate
+        // the Total chip even when cancelled orders are visible in the list.
+        const totalCost = orders
+          .filter(o => o.status !== 'cancelled')
+          .reduce(
+            (sum, o) => sum + (Number((o as any).calculatedTotal) || 0) + (Number((o as any).tax) || 0),
+            0
+          );
+        const filtersActive = !!searchTerm || Object.keys(filters).length > 0;
+        return (
+          <div className="orders-summary-bar">
+            <div className="orders-summary-chip">
+              <span className="orders-summary-label">{filtersActive ? 'Filtered' : 'Showing'}</span>
+              <span className="orders-summary-value">{orders.length} order{orders.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="orders-summary-chip">
+              <span className="orders-summary-label">Items</span>
+              <span className="orders-summary-value">{totalItems}</span>
+            </div>
+            <div className="orders-summary-chip">
+              <span className="orders-summary-label">Total</span>
+              <span className="orders-summary-value">{formatCurrency(totalCost)}</span>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Bulk Actions Bar */}
       {selectedOrders.size > 0 && (
         <div className="bulk-actions-bar">
