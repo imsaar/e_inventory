@@ -4547,29 +4547,34 @@ label.btn {
   text-transform: capitalize;
 }
 
-.status-pending {
+/* Order status palette — shared by Dashboard recent-orders cards, the
+   Orders list, and every detail view so status always reads the same
+   way. pending=orange, ordered=blue, shipped=yellow, delivered=green,
+   cancelled=red. Selectors use .status-badge.status-* so they outrank
+   container-scoped overrides like `.order-meta > span`. */
+.status-badge.status-pending {
   background: #fff3e0;
-  color: #f57c00;
+  color: #e65100;
 }
 
-.status-ordered {
-  background: #e8f5e8;
-  color: #1B5E20;
+.status-badge.status-ordered {
+  background: #e3f2fd;
+  color: #1565c0;
 }
 
-.status-shipped {
-  background: #f3e5f5;
-  color: #7b1fa2;
+.status-badge.status-shipped {
+  background: #fff8e1;
+  color: #a27212;
 }
 
-.status-delivered {
-  background: #e8f5e8;
-  color: #388e3c;
+.status-badge.status-delivered {
+  background: #e8f5e9;
+  color: #2e7d32;
 }
 
-.status-cancelled {
+.status-badge.status-cancelled {
   background: #ffebee;
-  color: #d32f2f;
+  color: #c62828;
 }
 
 /* Responsive Design */
@@ -4954,20 +4959,8 @@ label.btn {
   text-transform: capitalize;
 }
 
-.status-delivered {
-  background-color: var(--success-color) !important;
-  color: white !important;
-}
-
-.status-shipped {
-  background-color: var(--warning-color) !important;
-  color: white !important;
-}
-
-.status-pending {
-  background-color: var(--secondary-color) !important;
-  color: white !important;
-}
+/* (Previous duplicate .status-delivered / .status-shipped / .status-pending
+   rules with !important removed — the single palette above is authoritative.) */
 
 .order-items-preview {
   padding: 0 var(--spacing-md) var(--spacing-md) var(--spacing-md);

@@ -87,16 +87,8 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
     }).format(amount);
   };
 
-  const getStatusColor = (status: Order['status']) => {
-    switch (status) {
-      case 'pending': return '#ff9800';
-      case 'ordered': return '#2196f3';
-      case 'shipped': return '#9c27b0';
-      case 'delivered': return '#4caf50';
-      case 'cancelled': return '#f44336';
-      default: return '#666';
-    }
-  };
+  // Order status colors come from App.css .status-{status} classes so the
+  // detail modal matches Dashboard / Orders list / detail badges exactly.
 
   if (loading) {
     return (
@@ -210,10 +202,7 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                 <div className="detail-item">
                   <div className="detail-label">Status</div>
                   <div className="detail-value">
-                    <span 
-                      className="status-badge"
-                      style={{ backgroundColor: getStatusColor(order.status) }}
-                    >
+                    <span className={`status-badge status-${order.status}`}>
                       {order.status}
                     </span>
                   </div>

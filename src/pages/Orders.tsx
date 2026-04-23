@@ -392,7 +392,7 @@ export function Orders() {
                     </div>
                     <div className="detail-item">
                       <DollarSign size={16} />
-                      <span>{formatCurrency(order.totalAmount || (order as any).calculatedTotal || 0)}</span>
+                      <span>{formatCurrency((Number((order as any).calculatedTotal) || 0) + (Number((order as any).tax) || 0))}</span>
                     </div>
                     <div className="detail-item">
                       <Package size={16} />

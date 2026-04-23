@@ -349,16 +349,8 @@ Type "FACTORY RESET" below to confirm:`;
     }).format(amount);
   };
 
-  const getOrderStatusColor = (status: Order['status']) => {
-    switch (status) {
-      case 'pending': return '#ff9800';
-      case 'ordered': return '#2196f3';
-      case 'shipped': return '#9c27b0';
-      case 'delivered': return '#4caf50';
-      case 'cancelled': return '#f44336';
-      default: return '#666';
-    }
-  };
+  // Order status colors come from App.css .status-{status} classes so the
+  // Dashboard, Orders list, and detail views all render identical badges.
 
   if (loading) {
     return <div className="loading">Loading dashboard...</div>;
@@ -501,10 +493,7 @@ Type "FACTORY RESET" below to confirm:`;
                           {order.orderNumber || `#${order.id.slice(-8)}`}
                         </span>
                       </div>
-                      <span 
-                        className="status-badge"
-                        style={{ backgroundColor: getOrderStatusColor(order.status) }}
-                      >
+                      <span className={`status-badge status-${order.status}`}>
                         {order.status}
                       </span>
                     </div>
@@ -553,7 +542,7 @@ Type "FACTORY RESET" below to confirm:`;
                         <span className="order-supplier">{order.supplier}</span>
                       )}
                       <span className="order-total dashboard-order-total">
-                        {formatCurrency((order as any).totalAmount || (order as any).calculatedTotal || 0)}
+                        {formatCurrency((Number((order as any).calculatedTotal) || 0) + (Number((order as any).tax) || 0))}
                       </span>
                     </div>
                   </div>
