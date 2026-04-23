@@ -48,6 +48,9 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
   const [enrichingDetail, setEnrichingDetail] = useState(false);
   const [enrichStatus, setEnrichStatus] = useState<string | null>(null);
   const detailFileInputRef = useRef<HTMLInputElement | null>(null);
+  const createFromDetailInputRef = useRef<HTMLInputElement | null>(null);
+  const [creatingFromDetail, setCreatingFromDetail] = useState(false);
+  const [createFromDetailStatus, setCreateFromDetailStatus] = useState<string | null>(null);
 
   useEffect(() => {
     loadComponents();
@@ -140,6 +143,44 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
     setItems(newItems);
   };
 
+  // Create a brand-new order from an uploaded AliExpress detail page —
+  // the "Add Order" shortcut. Seeds order_number, order_date, supplier,
+  // items (with variations), and total_amount from the detail page and
+  // closes the form on success so the Orders list can refresh.
+  const handleCreateFromDetailFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (createFromDetailInputRef.current) createFromDetailInputRef.current.value = '';
+    if (!file) return;
+
+    setCreatingFromDetail(true);
+    setCreateFromDetailStatus(`Uploading ${file.name}…`);
+    try {
+      const formData = new FormData();
+      formData.append('detailFile', file);
+      const response = await fetch('/api/import/aliexpress/create-from-detail', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Request failed with ${response.status}`);
+      }
+      const warnParts = Array.isArray(data.warnings) && data.warnings.length > 0
+        ? ' ⚠ ' + data.warnings.join(' ⚠ ')
+        : '';
+      setCreateFromDetailStatus(
+        `Created order ${data.orderNumber} with ${data.itemCount} item${data.itemCount === 1 ? '' : 's'}, total $${Number(data.effectiveTotal ?? 0).toFixed(2)}.${warnParts}`
+      );
+      // Brief pause so the user sees the confirmation, then close the form.
+      // Longer pause when there's a warning so they can read it.
+      setTimeout(() => onSave(), warnParts ? 3500 : 600);
+    } catch (err) {
+      setCreateFromDetailStatus(`Import failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setCreatingFromDetail(false);
+    }
+  };
+
   // Upload an AliExpress order detail page (.webarchive from Safari,
   // .mhtml from Chrome, or a plain .html save) and enrich the current
   // order's items with per-row title/qty/unit cost. Used to recover
@@ -177,9 +218,18 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
       if (r.componentsRenamed > 0) {
         parts.push(`renamed ${r.componentsRenamed} component${r.componentsRenamed === 1 ? '' : 's'}`);
       }
-      if (r.discountFactor && r.discountFactor < 1 && r.subtotal && r.total) {
+      if (r.discountFactor && r.discountFactor < 1 && r.subtotal && r.itemsCost) {
         const pct = Math.round((1 - r.discountFactor) * 100);
-        parts.push(`spread ${pct}% discount (subtotal $${r.subtotal.toFixed(2)} → paid $${r.total.toFixed(2)})`);
+        const bonusNote = r.bonus && r.bonus > 0
+          ? `, +$${r.bonus.toFixed(2)} bonus counted toward cost not discount`
+          : '';
+        const taxNote = r.tax && r.tax > 0
+          ? `, +$${r.tax.toFixed(2)} tax stored on order`
+          : '';
+        parts.push(`spread ${pct}% discount (subtotal $${r.subtotal.toFixed(2)} → items $${r.itemsCost.toFixed(2)}${bonusNote}${taxNote})`);
+      }
+      if (Array.isArray(r.warnings) && r.warnings.length > 0) {
+        parts.push(...r.warnings.map((w: string) => `⚠ ${w}`));
       }
       setEnrichStatus(`Detail import complete — ${parts.join(', ')}.`);
       // Reload form data from the API so the table reflects the updates.
@@ -332,6 +382,39 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
+            {!order && (
+              <div className="import-from-detail-banner">
+                <div className="import-from-detail-text">
+                  <strong>Shortcut:</strong> Seed this order from an AliExpress detail page
+                  (<code>.webarchive</code> / <code>.mhtml</code> / <code>.html</code>) — fills in order number, date, supplier, items, and totals.
+                  <div className="import-from-detail-tip">
+                    <strong>Tip:</strong> on the AliExpress page, click the arrow next to <em>Total</em> to expand the price breakdown (Store discount, Coin credit, Additional charges, Bonus) <em>before</em> saving. Otherwise those rows aren't in the saved DOM and tax / bonus can't be attributed correctly.
+                  </div>
+                </div>
+                <input
+                  type="file"
+                  ref={createFromDetailInputRef}
+                  accept=".html,.mhtml,.mht,.webarchive"
+                  style={{ display: 'none' }}
+                  onChange={handleCreateFromDetailFileSelected}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-small"
+                  onClick={() => createFromDetailInputRef.current?.click()}
+                  disabled={creatingFromDetail}
+                >
+                  <Upload size={14} />
+                  {creatingFromDetail ? 'Importing…' : 'Import detail page'}
+                </button>
+                {createFromDetailStatus && (
+                  <div className="enrich-status" style={{ marginTop: 'var(--spacing-sm)' }}>
+                    {createFromDetailStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="form-grid">
               <div className="form-group">
                 <label htmlFor="orderDate">Order Date *</label>
@@ -423,7 +506,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
                         className="btn btn-secondary btn-small"
                         onClick={() => detailFileInputRef.current?.click()}
                         disabled={enrichingDetail}
-                        title="Upload an order detail page (.webarchive/.mhtml/.html) to fill in per-item titles, quantities, and unit costs"
+                        title="Upload an order detail page (.webarchive / .mhtml / .html) to fill in per-item titles, quantities, and unit costs. Tip: on AliExpress, click the arrow next to Total to expand the price breakdown (Store discount, Coin credit, Additional charges, Bonus) BEFORE saving — otherwise tax and bonus can't be attributed."
                       >
                         <Upload size={14} />
                         {enrichingDetail ? 'Importing…' : 'Import detail page'}

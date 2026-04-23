@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 12;
+const CURRENT_SCHEMA_VERSION = 13;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -694,6 +694,26 @@ function runMigrations() {
       console.log('Migration to version 12 completed successfully');
     } catch (error: any) {
       console.error('Migration to version 12 failed:', error);
+      throw error;
+    }
+  }
+
+  // Migration to version 13: Add tax column to orders. AliExpress detail
+  // pages list tax as "Additional charges"; captured separately so item
+  // unit costs stay post-discount/pre-tax while orders.total_amount still
+  // represents the full acquired value (items + tax).
+  if (currentVersion < 13) {
+    console.log('Running migration to version 13: Adding tax to orders');
+    try {
+      const cols = (db.prepare('PRAGMA table_info(orders)').all() as any[]).map((c: any) => c.name);
+      if (!cols.includes('tax')) {
+        db.exec('ALTER TABLE orders ADD COLUMN tax REAL DEFAULT 0');
+        console.log('  added orders.tax');
+      }
+      db.exec('INSERT INTO schema_version (version) VALUES (13)');
+      console.log('Migration to version 13 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 13 failed:', error);
       throw error;
     }
   }

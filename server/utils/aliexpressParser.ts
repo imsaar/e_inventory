@@ -344,9 +344,13 @@ export class AliExpressHTMLParser {
    */
   async parseOrderDetail(content: string | Buffer): Promise<{
     orderNumber: string | null;
+    orderDate: string | null;
+    sellerName: string | null;
     items: ParsedOrderDetailItem[];
     subtotal: number | null;
     total: number | null;
+    bonus: number | null;
+    tax: number | null;
   }> {
     let htmlContent: string;
 
@@ -409,12 +413,19 @@ export class AliExpressHTMLParser {
       if (items.length > 0) break;
     }
 
-    // Pricing breakdown: pull Subtotal and Total from the panel at the
-    // bottom of the detail page. The difference covers Store discount +
-    // Coin credit + any other adjustments; the caller spreads it across
-    // items proportionally so line totals sum to the actual paid amount.
+    // Pricing breakdown: pull Subtotal, Total, and Bonus from the panel at
+    // the bottom of the detail page. Subtotal − Total usually covers real
+    // discounts (Store discount + Coin credit) but AliExpress also counts
+    // "Bonus" (gift-card balance from prior refunds) as a reduction to the
+    // amount paid out of pocket. That's user-owned money being spent, not
+    // a seller-granted discount, so it should NOT lower item cost. The
+    // caller reads `bonus` and adds it back when computing the discount
+    // factor so line totals sum to (total + bonus), i.e. the real value
+    // acquired, rather than the out-of-pocket amount.
     let subtotal: number | null = null;
     let total: number | null = null;
+    let bonus: number | null = null;
+    let tax: number | null = null;
     const priceTitles = $('[data-pl="order_price_item_title"]');
     priceTitles.each((_, el) => {
       const label = $(el).text().trim().toLowerCase();
@@ -424,10 +435,38 @@ export class AliExpressHTMLParser {
       if (!Number.isFinite(amount) || amount <= 0) return;
       if (label.startsWith('subtotal') && subtotal === null) subtotal = amount;
       else if (label.startsWith('total') && total === null) total = amount;
+      else if (label.includes('bonus') && bonus === null) bonus = amount;
+      // AliExpress labels tax as "Additional charges"; also accept a plain
+      // "Tax" label in case the wording varies by region.
+      else if ((label.includes('additional charge') || label === 'tax' || label.startsWith('tax ')) && tax === null) tax = amount;
     });
 
-    console.log(`Order detail parse: order ${orderNumber || '(unknown)'}, extracted ${items.length} items, subtotal=${subtotal}, total=${total}`);
-    return { orderNumber, items, subtotal, total };
+    // Seller / store name — detail pages render it as a link to a store
+    // page. Fall back to any "Seller:" label, otherwise null.
+    let sellerName: string | null = null;
+    const storeLink = $('a[href*="/store/"]').first();
+    if (storeLink.length > 0) {
+      const txt = storeLink.text().trim();
+      if (txt && txt.length > 1 && txt.length < 120) sellerName = txt;
+    }
+    if (!sellerName) {
+      const sellerMatch = htmlContent.match(/Seller[:\s]+(?:<[^>]+>\s*)*([^<\n]{2,80})/i);
+      if (sellerMatch) sellerName = sellerMatch[1].trim();
+    }
+
+    // Order date — AliExpress detail pages render labels like "Order time"
+    // or "Placed on" followed by a date. Try a few variants and ISO-ify.
+    let orderDate: string | null = null;
+    const dateMatch = htmlContent.match(
+      /(?:Order\s*time|Order\s*date|Placed\s*on|Purchase\s*date)\s*[:\s]*<[^>]*>?\s*([A-Z][a-z]{2}\s+\d{1,2},?\s+\d{4}|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}\/\d{2,4})/i
+    );
+    if (dateMatch) {
+      const parsed = this.parseDate(dateMatch[1]);
+      if (parsed) orderDate = parsed;
+    }
+
+    console.log(`Order detail parse: order ${orderNumber || '(unknown)'}, date=${orderDate}, seller=${sellerName}, extracted ${items.length} items, subtotal=${subtotal}, total=${total}, bonus=${bonus}, tax=${tax}`);
+    return { orderNumber, orderDate, sellerName, items, subtotal, total, bonus, tax };
   }
 
   /**

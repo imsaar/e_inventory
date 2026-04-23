@@ -153,8 +153,12 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
     );
   }
 
-  const totalFromItems = order.items.reduce((sum, item) => sum + (item.unitCost * item.quantity), 0);
-  const displayTotal = order.totalAmount || totalFromItems;
+  const itemsSubtotal = order.items.reduce((sum, item) => sum + (item.unitCost * item.quantity), 0);
+  const taxAmount = order.tax || 0;
+  // Total = items (post-discount) + tax. Matches orders.total_amount for
+  // imported orders; diverges only if the user manually edited line items
+  // after import, in which case the displayed breakdown wins.
+  const displayTotal = itemsSubtotal + taxAmount;
 
   return (
     <div className="modal-overlay">
@@ -224,6 +228,21 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                     {formatCurrency(displayTotal)}
                   </div>
                 </div>
+
+                {typeof order.tax === 'number' && order.tax > 0 && (
+                  <div className="detail-item">
+                    <div className="detail-label">
+                      <DollarSign size={16} />
+                      Tax
+                    </div>
+                    <div
+                      className="detail-value"
+                      title="Imported from AliExpress &quot;Additional charges&quot; on the order detail page"
+                    >
+                      {formatCurrency(order.tax)}
+                    </div>
+                  </div>
+                )}
 
                 <div className="detail-item">
                   <div className="detail-label">
@@ -312,6 +331,35 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                     </div>
                   );
                 })}
+                <div className="table-row table-footer">
+                  <div className="table-cell"></div>
+                  <div className="table-cell"></div>
+                  <div className="table-cell"></div>
+                  <div className="table-cell"></div>
+                  <div className="table-cell table-total-label">Subtotal:</div>
+                  <div className="table-cell table-total-value">
+                    {formatCurrency(itemsSubtotal)}
+                  </div>
+                  <div className="table-cell"></div>
+                </div>
+                {taxAmount > 0 && (
+                  <div className="table-row table-footer">
+                    <div className="table-cell"></div>
+                    <div className="table-cell"></div>
+                    <div className="table-cell"></div>
+                    <div className="table-cell"></div>
+                    <div
+                      className="table-cell table-total-label"
+                      title="Imported from AliExpress &quot;Additional charges&quot; on the order detail page"
+                    >
+                      Tax:
+                    </div>
+                    <div className="table-cell table-total-value">
+                      {formatCurrency(taxAmount)}
+                    </div>
+                    <div className="table-cell"></div>
+                  </div>
+                )}
                 <div className="table-row table-footer">
                   <div className="table-cell"></div>
                   <div className="table-cell"></div>

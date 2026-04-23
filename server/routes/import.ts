@@ -445,8 +445,34 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
       orderNumber: detailOrderNumber,
       items: detailItems,
       subtotal: detailSubtotal,
-      total: detailTotal,
+      total: rawDetailTotal,
+      bonus: detailBonus,
+      tax: detailTax,
     } = await parser.parseOrderDetail(fileBuffer);
+    // orderDate / sellerName available on the returned object too, used by
+    // the sibling /create-from-detail endpoint. The enrich endpoint doesn't
+    // overwrite them on the existing order.
+
+    // If the detail page's Total exceeds its Subtotal and no tax row was
+    // captured (common when the breakdown section was left collapsed while
+    // saving the webarchive), the overage is almost certainly untagged
+    // tax. Clamp Total down to Subtotal so item unit costs don't get
+    // silently inflated. The real tax can be entered manually after import.
+    let detailTotal = rawDetailTotal;
+    if (detailSubtotal && detailTotal && !detailTax && detailSubtotal < detailTotal) {
+      detailTotal = detailSubtotal;
+    }
+
+    // Cost decomposition:
+    //   item_cost (post-discount, pre-tax) = total + bonus − tax
+    //   orders.total_amount (full acquired value)       = item_cost + tax
+    //                                                   = total + bonus
+    // Bonus (gift-card balance from prior refunds) is the user's own money
+    // and doesn't lower item cost. Tax ("Additional charges") is above
+    // item cost and is stored separately on the order.
+    const taxAmount = detailTax ?? 0;
+    const itemsCost = Math.max(0, (detailTotal ?? 0) + (detailBonus ?? 0) - taxAmount) || detailTotal || 0;
+    const effectiveTotal = itemsCost + taxAmount;
 
     // Reject if the uploaded detail page is for a different order. Guards
     // the user against accidentally enriching the wrong order.
@@ -523,13 +549,29 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
       }
     }
 
-    // Spread any discount (store discount + coin credit + shipping
-    // adjustments) across items proportionally so sum(qty × effective
-    // unit_cost) matches the actually-paid total. Applied only when both
-    // subtotal and total are present and the total is strictly lower.
+    // Spread real discount (store discount + coin credit) across items
+    // proportionally so sum(qty × effective unit_cost) equals itemsCost
+    // (post-discount, pre-tax). Tax is stored separately on the order.
     const discountFactor = (
-      detailSubtotal && detailTotal && detailSubtotal > 0 && detailTotal > 0 && detailTotal < detailSubtotal
-    ) ? detailTotal / detailSubtotal : 1;
+      detailSubtotal && itemsCost && detailSubtotal > 0 && itemsCost > 0 && itemsCost < detailSubtotal
+    ) ? itemsCost / detailSubtotal : 1;
+
+    // If there's a subtotal-total gap but no breakdown rows came through,
+    // the user almost certainly saved the page with the "Total" section
+    // collapsed — the Store discount / Coin credit / Additional charges /
+    // Bonus rows only render after clicking the expand arrow.
+    const warnings: string[] = [];
+    const gap = detailSubtotal && detailTotal ? detailSubtotal - detailTotal : 0;
+    if (gap > 0.01 && !detailTax && !detailBonus) {
+      warnings.push(
+        `Subtotal ($${detailSubtotal!.toFixed(2)}) exceeds Total ($${detailTotal!.toFixed(2)}) by $${gap.toFixed(2)}, but no Store discount / Coin credit / Additional charges / Bonus rows were found on the page. Expand the "Total" section on AliExpress (click the arrow next to Total) before saving the webarchive so the breakdown renders in the DOM — without it, tax and bonus can't be attributed correctly.`
+      );
+    }
+    if (rawDetailTotal !== detailTotal) {
+      warnings.push(
+        `Total on the detail page ($${rawDetailTotal!.toFixed(2)}) exceeded Subtotal ($${detailSubtotal!.toFixed(2)}) with no tax row present — clamped Total to Subtotal to avoid silently inflating item cost. Re-save with the breakdown expanded to capture the actual tax.`
+      );
+    }
 
     const results = {
       detailItems: detailItems.length,
@@ -540,7 +582,12 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
       pairedByFallback: 0,
       subtotal: detailSubtotal,
       total: detailTotal,
+      bonus: detailBonus,
+      tax: taxAmount,
+      itemsCost,
+      effectiveTotal,
       discountFactor,
+      warnings,
       unmatched: [] as Array<{ productId: string; productTitle: string }>,
       orderItemIds: [] as string[],
     };
@@ -702,11 +749,13 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
         results.componentsRenamed++;
       }
 
-      // If the detail page carries an authoritative total, write it back
-      // to orders.total_amount so the list view reflects the paid amount.
-      if (detailTotal && detailTotal > 0) {
-        db.prepare('UPDATE orders SET total_amount = ?, updated_at = ? WHERE id = ?').run(
-          detailTotal,
+      // Write the authoritative order-level cost (items + tax) and the
+      // tax breakdown separately. sum(qty × unit_cost) equals itemsCost
+      // = effectiveTotal − tax.
+      if (effectiveTotal && effectiveTotal > 0) {
+        db.prepare('UPDATE orders SET total_amount = ?, tax = ?, updated_at = ? WHERE id = ?').run(
+          effectiveTotal,
+          taxAmount,
           now,
           order.id
         );
@@ -722,6 +771,200 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
     console.error('enrich-order error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Failed to enrich order',
+    });
+  } finally {
+    if (tempFilePath) {
+      fs.unlink(tempFilePath).catch(() => undefined);
+    }
+  }
+});
+
+/**
+ * Create a brand-new order from an AliExpress order detail page. Used by
+ * the "Add Order" flow as a shortcut to seed an order from a .webarchive /
+ * .mhtml / .html instead of typing everything manually.
+ *
+ * - Requires the detail page to contain a parseable order number.
+ * - Rejects with 409 if an order with the same order_number already exists
+ *   (the caller should fall through to enrich-order in that case).
+ * - Spreads discount + factors bonus back into cost identically to the
+ *   enrich endpoint. sum(qty × unit_cost) equals orders.total_amount.
+ */
+router.post('/aliexpress/create-from-detail', (req, res, next) => {
+  upload.single('detailFile')(req, res, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  let tempFilePath: string | null = null;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'detailFile is required' });
+    }
+    tempFilePath = req.file.path;
+    const db = getDb(req);
+
+    const fileBuffer = await fs.readFile(tempFilePath);
+    const parser = new AliExpressHTMLParser('./uploads/imported-images');
+    const {
+      orderNumber,
+      orderDate,
+      sellerName,
+      items: detailItems,
+      subtotal: detailSubtotal,
+      total: rawDetailTotal,
+      bonus: detailBonus,
+      tax: detailTax,
+    } = await parser.parseOrderDetail(fileBuffer);
+
+    // Same clamp as enrich-order: if Total > Subtotal with no tax row, the
+    // breakdown wasn't expanded before saving. Pin Total to Subtotal so we
+    // don't silently inflate item cost.
+    let detailTotal = rawDetailTotal;
+    if (detailSubtotal && detailTotal && !detailTax && detailSubtotal < detailTotal) {
+      detailTotal = detailSubtotal;
+    }
+
+    if (!orderNumber) {
+      return res.status(422).json({
+        error: 'Could not find an order number on the uploaded page. Make sure it is the order detail page (click into an order from My Orders), not the My Orders list.',
+      });
+    }
+    if (detailItems.length === 0) {
+      return res.status(422).json({
+        error: 'No items found on the uploaded detail page.',
+      });
+    }
+
+    const existing = db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as
+      { id: string } | undefined;
+    if (existing) {
+      return res.status(409).json({
+        error: `Order ${orderNumber} already exists. Open it from the Orders list and use "Import detail page" to enrich it instead.`,
+        existingOrderId: existing.id,
+      });
+    }
+
+    const taxAmount = detailTax ?? 0;
+    const itemsCost = Math.max(0, (detailTotal ?? 0) + (detailBonus ?? 0) - taxAmount) || detailTotal || detailSubtotal || 0;
+    const effectiveTotal = itemsCost + taxAmount;
+    const discountFactor = (
+      detailSubtotal && itemsCost && detailSubtotal > 0 && itemsCost > 0 && itemsCost < detailSubtotal
+    ) ? itemsCost / detailSubtotal : 1;
+
+    const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date().toISOString();
+    const orderDateFinal = orderDate || new Date().toISOString();
+    const supplier = sellerName || 'AliExpress';
+
+    db.exec('BEGIN TRANSACTION');
+    try {
+      db.prepare(`
+        INSERT INTO orders (
+          id, order_date, supplier, order_number, supplier_order_id,
+          notes, total_amount, tax, import_source, import_date,
+          status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        orderId,
+        orderDateFinal,
+        supplier,
+        orderNumber,
+        orderNumber,
+        'Imported from AliExpress detail page',
+        effectiveTotal,
+        taxAmount,
+        'aliexpress',
+        now,
+        'delivered',
+        now,
+        now
+      );
+
+      for (const detail of detailItems) {
+        const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
+        const componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+          INSERT INTO components (
+            id, name, description, category, quantity, min_threshold,
+            image_url, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          componentId,
+          detail.productTitle,
+          null,
+          'Electronic Component',
+          detail.quantity || 0,
+          0,
+          detail.localImagePath || null,
+          'available',
+          now,
+          now
+        );
+
+        const orderItemId = `oit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+          INSERT INTO order_items (
+            id, order_id, component_id, product_title, product_url,
+            local_image_path, quantity, unit_cost, list_unit_cost,
+            variation, import_confidence, manual_review, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          orderItemId,
+          orderId,
+          componentId,
+          detail.productTitle,
+          detail.productUrl || null,
+          detail.localImagePath || null,
+          detail.quantity,
+          effectiveUnitCost,
+          detail.unitPrice,
+          detail.variation || null,
+          0.9,
+          0,
+          'Imported from order detail page'
+        );
+      }
+
+      db.exec('COMMIT');
+    } catch (dbErr) {
+      db.exec('ROLLBACK');
+      throw dbErr;
+    }
+
+    const warnings: string[] = [];
+    const gap = detailSubtotal && detailTotal ? detailSubtotal - detailTotal : 0;
+    if (gap > 0.01 && !detailTax && !detailBonus) {
+      warnings.push(
+        `Subtotal ($${detailSubtotal!.toFixed(2)}) exceeds Total ($${detailTotal!.toFixed(2)}) by $${gap.toFixed(2)}, but no Store discount / Coin credit / Additional charges / Bonus rows were found on the page. Expand the "Total" section on AliExpress (click the arrow next to Total) before saving the webarchive so the breakdown renders in the DOM.`
+      );
+    }
+    if (rawDetailTotal !== detailTotal) {
+      warnings.push(
+        `Total on the detail page ($${rawDetailTotal!.toFixed(2)}) exceeded Subtotal ($${detailSubtotal!.toFixed(2)}) with no tax row present — clamped Total to Subtotal to avoid silently inflating item cost. Re-save with the breakdown expanded to capture the actual tax.`
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      orderId,
+      orderNumber,
+      orderDate: orderDateFinal,
+      supplier,
+      itemCount: detailItems.length,
+      subtotal: detailSubtotal,
+      total: detailTotal,
+      bonus: detailBonus,
+      tax: taxAmount,
+      itemsCost,
+      effectiveTotal,
+      discountFactor,
+      warnings,
+    });
+  } catch (error) {
+    console.error('create-from-detail error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to create order from detail page',
     });
   } finally {
     if (tempFilePath) {

@@ -49,6 +49,7 @@ const mapOrderRow = (row: any) => ({
   orderNumber: row.order_number,
   notes: row.notes,
   totalAmount: row.total_amount,
+  tax: row.tax,
   status: row.status,
   createdAt: row.created_at,
   updatedAt: row.updated_at

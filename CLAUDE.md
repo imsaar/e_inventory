@@ -132,15 +132,28 @@ The AliExpress import system has three sibling parsers feeding into one orchestr
 
 **Order detail enrichment (`POST /api/import/aliexpress/enrich-order/:orderId`)**: The My Orders list page hides per-item data for multi-product orders (no title/qty/unit price rendered in thumbnail strips). Uploading the order's *detail* page recovers that data. Key mechanics in `server/routes/import.ts` + `AliExpressHTMLParser.parseOrderDetail`:
 
-- **Parser** returns `{ orderNumber, items, subtotal, total }`. Order number is pulled from `orderId=<digits>` in tracking URLs; Subtotal/Total come from `data-pl="order_price_item_*"` pairs.
+- **Parser** returns `{ orderNumber, orderDate, sellerName, items, subtotal, total, bonus, tax }`. Order number is pulled from `orderId=<digits>` in tracking URLs. Subtotal, Total, Bonus, and Tax (labeled "Additional charges" on AE) come from `data-pl="order_price_item_*"` pairs. `orderDate` / `sellerName` are best-effort from surrounding DOM.
 - **Order-number guard**: rejects with 409 if the uploaded detail's order number doesn't match the URL-scoped order being edited.
 - **Matching is group-by-productId on both sides**, not a single-entry Map (the old bug). Multi-variant orders are common — e.g. 7 SKU colors sharing one product ID — and they're paired positionally within each productId group. `Map<productId, row[]>` + `Map<productId, detail[]>` → inner positional pair.
 - **Pass 2 (orphan positional)**: leftover detail items left after Pass 1 are paired with existing rows whose `product_url` has no parseable product ID (placeholder "AliExpress item unknown-N" rows from the original multi-item parser). The paired row has its `product_url` backfilled so it's matchable by ID on future enrichments.
 - **Missing-row creation**: detail items still unmatched after both passes get INSERTed as fresh `order_items` with new `components`. Nothing is silently discarded; this is how orders that were collapsed to fewer rows than the detail page reality get healed.
 - **Missing-component creation**: if a paired row's `component_id` is NULL (old data), a new component is inserted and the `order_items.component_id` gets linked — guarantees component-rename never silently skips.
-- **Discount spread**: `discountFactor = total / subtotal` (when subtotal > total). Each item's paid `unit_cost` is `rawListPrice × discountFactor`, so sum of line totals equals the actually-paid order total. The raw list price is stored separately in `order_items.list_unit_cost` (migration v9). `order_items.total_cost` is a GENERATED column from `quantity * unit_cost` — do NOT include it in UPDATE statements (SQLite errors).
-- **Authoritative total**: after all item writes, `orders.total_amount` gets rewritten to the detail page's Total.
+- **Cost decomposition** (the authoritative math):
+  - `itemsCost (post-discount, pre-tax) = total + bonus − tax`
+  - `orders.total_amount (full acquired value) = itemsCost + tax = total + bonus`
+  - `discountFactor = itemsCost / subtotal`, applied to each raw unit price so `sum(qty × unit_cost) = itemsCost`.
+  - **Bonus** (gift-card balance from prior refunds, labeled "Bonus" on AE) is the user's own money — added to cost, not treated as discount. Subtracting it from itemsCost would wrongly understate component value.
+  - **Tax** (labeled "Additional charges" on AE) is stored separately in `orders.tax` (migration v13) and excluded from `unit_cost`. The items-table footer in the detail view renders it as a separate row: `Subtotal + Tax = Total`.
+  - **Subtotal/Total clamp**: if `total > subtotal` and no tax row was captured, the breakdown was almost certainly collapsed when the page was saved — the overage is untagged tax we can't attribute. The route clamps `total = subtotal` to avoid silently inflating item cost, and emits a `warnings[]` entry telling the user to re-save with the "Total" section expanded on AliExpress. The same warning fires when `subtotal > total` but no Store discount / Coin credit / Additional charges / Bonus rows came through.
+- **Discount spread**: raw list price is preserved separately in `order_items.list_unit_cost` (migration v9). `order_items.total_cost` is a GENERATED column from `quantity * unit_cost` — do NOT include it in UPDATE statements (SQLite errors).
 - **Unit-cost form precision**: the OrderForm's Unit Cost input uses `step="0.0001"` because discount-factor math produces 4-decimal values that `step="0.01"` would reject as "Please enter a valid value".
+
+**Order creation from detail page (`POST /api/import/aliexpress/create-from-detail`)**: Sibling endpoint for the Add-Order flow. Same parser, same cost decomposition, same clamp / warnings. Additionally:
+- 409 if an order with the detail's `order_number` already exists (returns `existingOrderId` so the UI can point the user to the enrich-order flow instead).
+- Creates the order (status = `delivered`, import_source = `aliexpress`) with `orderDate` / `supplier` from the detail page where available, falling back to today / "AliExpress".
+- Creates fresh components + order_items for every line; no matching against existing DB rows.
+
+**UI reminder to expand the breakdown**: the OrderForm's detail-upload UI (both the create-mode banner and the edit-mode button tooltip) tells the user to expand the "Total" section on AliExpress before saving. Without that expansion, Store discount / Coin credit / Additional charges / Bonus rows aren't in the saved DOM.
 
 **`list_unit_cost` column**: nullable REAL on `order_items`. Pre-existing rows stay NULL; only rows enriched via detail-page upload get the pre-discount list price populated. The OrderDetailView shows it as a muted strikethrough beneath the paid `unit_cost` when list > paid.
 
@@ -157,13 +170,14 @@ server: {
 ```
 
 ### Database Schema Evolution
-Current schema version: 12 (automatic migrations handle upgrades)
+Current schema version: 13 (automatic migrations handle upgrades)
 
-**Self-healing schema migrations (v10, v11, v12)**: dev DBs occasionally land in a state where `schema_version` records a high version but the underlying tables are missing columns earlier migrations were supposed to add (e.g. after a Factory Reset re-created tables from stale `CREATE`s while leaving `schema_version` intact). The self-healing migrations introspect with `PRAGMA table_info` and idempotently `ALTER TABLE ... ADD COLUMN` any missing columns:
+**Self-healing schema migrations (v10, v11, v12, v13)**: dev DBs occasionally land in a state where `schema_version` records a high version but the underlying tables are missing columns earlier migrations were supposed to add (e.g. after a Factory Reset re-created tables from stale `CREATE`s while leaving `schema_version` intact). The self-healing migrations introspect with `PRAGMA table_info` and idempotently `ALTER TABLE ... ADD COLUMN` any missing columns:
 
 - **v10** heals `storage_locations` (`qr_code`, `coordinates_x/y/z`, `photo_url`, `qr_size`, `tags`) and creates a partial unique index for `qr_code` since `ALTER TABLE ADD COLUMN` can't carry `UNIQUE`.
 - **v11** heals `projects` (`start_date`, `completed_date`, `notes`, `tags`).
 - **v12** heals `components` (`dimensions`, `weight`, `voltage`, `current`, `pin_count`, `protocols`, `supplier` — the columns v8 was supposed to add).
+- **v13** adds `orders.tax` (REAL DEFAULT 0). Populated by detail-page enrichment / creation from the AliExpress "Additional charges" line; nullable for pre-existing rows.
 
 When you write new column-add migrations, prefer this pattern (PRAGMA-guarded, not just version-counter-gated) so column drift across DBs heals automatically.
 - **Database Path Logic**: Test environment uses unique DB per run, dev uses `inventory-dev.db`, production uses `inventory.db`

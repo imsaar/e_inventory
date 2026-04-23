@@ -158,6 +158,7 @@ export interface Order {
   orderNumber?: string;
   notes?: string;
   totalAmount?: number;
+  tax?: number;
   status: 'pending' | 'ordered' | 'shipped' | 'delivered' | 'cancelled';
   createdAt: string;
   updatedAt: string;

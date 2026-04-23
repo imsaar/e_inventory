@@ -226,16 +226,50 @@
 │ │   │           product_url has no parseable ID ("unknown-N") positionally  │
 │ │   └── Pass 3 — for still-unmatched detail items: INSERT new order_items   │
 │ │                + new components, so nothing is dropped                    │
-│ ├── Discount factor = total / subtotal (when total < subtotal)              │
-│ ├── For each matched pair: UPDATE product_title, quantity, unit_cost (raw  │
-│ │   × factor), list_unit_cost (raw), variation, product_url, image; auto-  │
-│ │   create component if NULL, else rename unconditionally                   │
-│ ├── UPDATE orders.total_amount = detail.total (authoritative)               │
+│ ├── Cost decomposition:                                                     │
+│ │   itemsCost = total + bonus − tax                                         │
+│ │   orders.total_amount = itemsCost + tax = total + bonus                   │
+│ │   discountFactor = itemsCost / subtotal                                   │
+│ │   Bonus (gift-card from refunds) is added to cost, not discount.          │
+│ │   Tax ("Additional charges") is stored separately in orders.tax.          │
+│ │   If total > subtotal with no tax row, clamp total=subtotal and warn.     │
+│ ├── For each matched pair: UPDATE product_title, quantity, unit_cost       │
+│ │   (raw × factor), list_unit_cost (raw), variation, product_url, image;  │
+│ │   auto-create component if NULL, else rename unconditionally              │
+│ ├── UPDATE orders.total_amount + orders.tax                                 │
 │ └── Return { detailItems, matched, updated, created, componentsRenamed,     │
-│     pairedByFallback, subtotal, total, discountFactor }                     │
+│     pairedByFallback, subtotal, total, bonus, tax, itemsCost,               │
+│     effectiveTotal, discountFactor, warnings[] }                            │
 │                                                                             │
 │ total_cost is a GENERATED column — never included in UPDATE statements.     │
 │ list_unit_cost is a nullable REAL column added in migration v9.             │
+│ orders.tax is a REAL column added in migration v13.                         │
+│                                                                             │
+│ UI reminder: click the arrow next to "Total" on AliExpress to expand the    │
+│ breakdown (Store discount, Coin credit, Additional charges, Bonus) BEFORE   │
+│ saving the webarchive — otherwise those rows aren't in the DOM and tax /    │
+│ bonus can't be attributed.                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+13. Order Creation From Detail Page (Add-Order shortcut)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Sibling of #12 for the Add-Order flow. Same parser, same cost math, same    │
+│ clamp / warnings.                                                           │
+│                                                                             │
+│ POST /api/import/aliexpress/create-from-detail                              │
+│ ├── Requires a parseable order_number on the page (else 422)                │
+│ ├── 409 if an order with that order_number already exists (returns          │
+│ │   existingOrderId so the UI can redirect to enrich-order)                 │
+│ ├── Creates a new orders row with order_date + supplier pulled from the     │
+│ │   page where available, falling back to today / "AliExpress"              │
+│ ├── Creates fresh components + order_items for every line; no matching      │
+│ │   against existing DB rows                                                │
+│ └── Returns { success, orderId, orderNumber, orderDate, supplier,           │
+│     itemCount, subtotal, total, bonus, tax, itemsCost, effectiveTotal,      │
+│     discountFactor, warnings[] }                                            │
+│                                                                             │
+│ Frontend: the OrderForm in create mode (Add Order) shows an "Import detail  │
+│ page" banner above the manual fields with the same expand-breakdown tip.    │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 11. On-Demand Title Enrichment (Optional, Post-Import)
