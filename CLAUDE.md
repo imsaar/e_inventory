@@ -157,6 +157,13 @@ The AliExpress import system has three sibling parsers feeding into one orchestr
 
 **`list_unit_cost` column**: nullable REAL on `order_items`. Pre-existing rows stay NULL; only rows enriched via detail-page upload get the pre-discount list price populated. The OrderDetailView shows it as a muted strikethrough beneath the paid `unit_cost` when list > paid.
 
+**Dashboard spend-totals formula**: the four spend-total cards (all-time, last 7 days, last 30 days, last 12 months) on the Dashboard all use the same per-order expression, defined once in `src/pages/Dashboard.tsx` as `orderCost(order) = (Number(order.calculatedTotal) || 0) + (Number(order.tax) || 0)`:
+
+- `calculatedTotal` comes from the `/api/orders` list route (`server/routes/orders.ts`) as `SUM(order_items.total_cost)` per order — authoritative live sum of line items, reflects manual edits. Not to be confused with the cached `orders.total_amount` column, which we deliberately *don't* use here so the dashboard never drifts from the actual items in the DB.
+- `+ order.tax` brings the tax stored on the order back in (`calculatedTotal` is items-only).
+- Cancelled orders are filtered out first via `spendableOrders = orders.filter(o => o.status !== 'cancelled')`. The four windows differ only by date filter; the summation is identical.
+- The Pending Orders stat uses `o.status !== 'delivered' && o.status !== 'cancelled'` (cancelled orders aren't pending delivery either).
+
 ### Vite Proxy Configuration
 Frontend development requires proxying both API and static file requests:
 ```typescript

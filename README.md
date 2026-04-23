@@ -66,7 +66,7 @@ A comprehensive web-based inventory management system designed specifically for 
 
 🔍 **Enhanced Search Experience (January 2025)** - Advanced search functionality across all pages with real-time filtering, multi-parameter search on components and orders, intelligent sorting options, and responsive search interfaces optimized for mobile and desktop.
 
-📊 **Dashboard Enhancements (January 2025)** - Added comprehensive order statistics, recent orders display with interactive cards, enhanced database management section with detailed metrics, and improved visual design with better stat card styling. Order value is now broken down in a single card across rolling windows: last 7 days, last 30 days, last 12 months, and all-time.
+📊 **Dashboard Enhancements (January 2025)** - Added comprehensive order statistics, recent orders display with interactive cards, enhanced database management section with detailed metrics, and improved visual design with better stat card styling. Order value is now broken down in a single card across rolling windows: last 7 days, last 30 days, last 12 months, and all-time. All four totals use the same formula — `SUM(order_items.total_cost) + orders.tax` across non-cancelled orders — so manual line-item edits are reflected immediately and tax is counted but refunded (cancelled) money is not. Pending Orders similarly excludes cancelled.
 
 🎨 **UI/UX Improvements (January 2025)** - Refined component forms by removing redundant quantity/cost fields (now calculated from orders), improved button contrast and accessibility, enhanced responsive grid layouts, and consistent visual styling across all components.
 
