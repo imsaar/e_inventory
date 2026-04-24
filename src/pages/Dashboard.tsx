@@ -413,28 +413,36 @@ Type "FACTORY RESET" below to confirm:`;
               </div>
             </div>
 
-            <div className="stat-card stat-card-breakdown">
-              <div className="stat-icon">
-                <TrendingUp size={32} />
+            <div className="order-value-card">
+              <div className="order-value-header">
+                <div className="order-value-header-icon">
+                  <TrendingUp size={20} />
+                </div>
+                <span className="order-value-header-label">Order Value</span>
               </div>
-              <div className="stat-content">
-                <div className="stat-label">Order Value</div>
-                <div className="stat-breakdown-rows">
-                  <div className="stat-breakdown-row">
-                    <span className="stat-breakdown-label">Last 7 Days</span>
-                    <span className="stat-breakdown-value">${stats.totalOrderValueLast7Days.toFixed(2)}</span>
+              <div className="order-value-hero">
+                <div className="order-value-hero-amount">
+                  ${stats.totalOrderValue.toFixed(2)}
+                </div>
+                <div className="order-value-hero-label">All Time</div>
+              </div>
+              <div className="order-value-chips">
+                <div className="order-value-chip">
+                  <div className="order-value-chip-label">Last 7 days</div>
+                  <div className="order-value-chip-amount">
+                    ${stats.totalOrderValueLast7Days.toFixed(2)}
                   </div>
-                  <div className="stat-breakdown-row">
-                    <span className="stat-breakdown-label">Last 30 Days</span>
-                    <span className="stat-breakdown-value">${stats.totalOrderValueLast30Days.toFixed(2)}</span>
+                </div>
+                <div className="order-value-chip">
+                  <div className="order-value-chip-label">Last 30 days</div>
+                  <div className="order-value-chip-amount">
+                    ${stats.totalOrderValueLast30Days.toFixed(2)}
                   </div>
-                  <div className="stat-breakdown-row">
-                    <span className="stat-breakdown-label">Last 12 Months</span>
-                    <span className="stat-breakdown-value">${stats.totalOrderValueLast12Months.toFixed(2)}</span>
-                  </div>
-                  <div className="stat-breakdown-row stat-breakdown-total">
-                    <span className="stat-breakdown-label">All Time</span>
-                    <span className="stat-breakdown-value">${stats.totalOrderValue.toFixed(2)}</span>
+                </div>
+                <div className="order-value-chip">
+                  <div className="order-value-chip-label">Last 12 months</div>
+                  <div className="order-value-chip-amount">
+                    ${stats.totalOrderValueLast12Months.toFixed(2)}
                   </div>
                 </div>
               </div>
