@@ -191,13 +191,18 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ## Database Storage
 
+> **Full layout, env-var overrides, static-serve security rules, and backup / restore endpoints are documented in [STORAGE.md](./STORAGE.md).** The summary below covers the common cases.
+
 ### Database Location
 The application uses **SQLite** for data storage with files located at:
 ```
 data/
-├── inventory.db          # Main application database (auto-created)
+├── inventory.db          # Main application database (production, auto-created)
+├── inventory-dev.db      # Dev-mode database when NODE_ENV=development
 └── (backup files)        # Manual backups (recommended)
 ```
+
+Images and other binary assets live under `uploads/` (`imported-images/`, `component-images/`, `imports/`, `backups/`) — see [STORAGE.md](./STORAGE.md) for the full map.
 
 ### Database Schema
 The SQLite database includes these main tables:
