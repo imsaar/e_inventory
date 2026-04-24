@@ -3,6 +3,7 @@ import { X, Edit, Trash2, MapPin, Package, Calendar, Tag, QrCode, Clipboard, Ima
 import { StorageLocation, Component } from '../types';
 import { LinkifiedText } from '../utils/linkify';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useEditShortcut } from '../hooks/useEditShortcut';
 
 interface LocationDetailViewProps {
   locationId: string;
@@ -20,6 +21,9 @@ export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: Lo
   const [parentPath, setParentPath] = useState<StorageLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Pressing 'e' in the detail view jumps into edit mode once loaded.
+  useEditShortcut(() => { if (location) onEdit(location); }, !!location);
 
   useEffect(() => {
     loadLocation();

@@ -3,6 +3,7 @@ import { X, Package, Calendar, DollarSign, User, FileText, Hash, Edit, Trash2 } 
 import { Order } from '../types';
 import { resolveOrderItemImage } from '../utils/orderItemImage';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useEditShortcut } from '../hooks/useEditShortcut';
 
 interface OrderItem {
   id: string;
@@ -71,6 +72,10 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
       onEdit(order);
     }
   };
+
+  // Pressing 'e' in the detail view jumps into edit mode. Disabled until
+  // the order has loaded and an onEdit callback is wired up.
+  useEditShortcut(handleEdit, !!(order && onEdit));
 
   const handleDelete = async () => {
     if (!order || !onDelete) return;

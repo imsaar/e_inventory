@@ -3,6 +3,7 @@ import { X, Edit, Trash2, Package, Calendar, Tag, MapPin, DollarSign, Clipboard,
 import { Component, StorageLocation, ComponentOrder } from '../types';
 import { LinkifiedText } from '../utils/linkify';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useEditShortcut } from '../hooks/useEditShortcut';
 
 interface ComponentDetailViewProps {
   componentId: string;
@@ -19,6 +20,10 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
   const [orders, setOrders] = useState<ComponentOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Pressing 'e' in the detail view jumps into edit mode once the
+  // component record has loaded.
+  useEditShortcut(() => { if (component) onEdit(component); }, !!component);
 
   useEffect(() => {
     loadComponent();
