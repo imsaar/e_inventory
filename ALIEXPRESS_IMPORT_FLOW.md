@@ -1,5 +1,7 @@
 # AliExpress Import Process Flow
 
+> Amazon import has its own doc: [`AMAZON_IMPORT_FLOW.md`](./AMAZON_IMPORT_FLOW.md). Concepts shared between both sources — pack-size detection, component-quantity deltas on enrichment, status-transition rollback, and list-vs-paid pricing — are described once here (section 14) and cross-referenced from the Amazon doc.
+
 ## Complete Technical Flow Diagram
 
 ```
@@ -251,29 +253,7 @@
 │ bonus can't be attributed.                                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-14. Amazon Detail Page (Add-Order shortcut + Edit enrichment)
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ server/utils/amazonParser.ts parses Amazon order detail pages with          │
-│ authoritative `data-component="..."` anchors (class names are churn-prone): │
-│   data-component="shipments"         — wraps the ordered items section      │
-│   data-component="purchasedItems"    — one per ordered product line         │
-│   data-component="orderDate"         — Order time text                      │
-│                                                                             │
-│ Items are scoped STRICTLY inside data-component="shipments" so p13n         │
-│ recommendation carousels ("Customers who viewed…") are excluded. Order      │
-│ number prefers the labeled "Order #" occurrence over 3-7-7 patterns that    │
-│ show up in nav / "recent orders" sidebars.                                  │
-│                                                                             │
-│ Endpoints:                                                                  │
-│ ├── POST /api/import/amazon/create-from-detail   (Add-Order shortcut)       │
-│ └── POST /api/import/amazon/enrich-order/:orderId (Edit-order enrichment)   │
-│     Matches items by ASIN (10-char [A-Z0-9]) extracted from product_url.    │
-│                                                                             │
-│ OrderForm routing: the edit-mode "Import detail page" button auto-picks     │
-│ aliexpress vs amazon based on order.importSource.                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-15. Pack-Size Detection + Component Quantity Sync
+14. Pack-Size Detection + Component Quantity Sync (SHARED with Amazon flow)
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ Problem: buying "10 PCS Jumper Wire" at qty 1 should add 10 physical units, │
 │ not 1. AliExpress often encodes the chosen pack in a SKU variation ("30PCS" │

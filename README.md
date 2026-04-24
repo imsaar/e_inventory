@@ -170,6 +170,7 @@ A comprehensive web-based inventory management system designed specifically for 
 - `DELETE /api/orders/:id` - Delete order and reverse inventory changes
 
 ### AliExpress Import
+See [ALIEXPRESS_IMPORT_FLOW.md](./ALIEXPRESS_IMPORT_FLOW.md) for the full pipeline and [AMAZON_IMPORT_FLOW.md](./AMAZON_IMPORT_FLOW.md) for the Amazon variant.
 - `GET /api/import/test` - Test import system endpoint
 - `GET /api/import/history` - Get import history with statistics
 - `POST /api/import/aliexpress/preview` - Upload and preview AliExpress HTML, MHTML, or .webarchive file
