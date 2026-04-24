@@ -251,6 +251,50 @@
 │ bonus can't be attributed.                                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
 
+14. Amazon Detail Page (Add-Order shortcut + Edit enrichment)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ server/utils/amazonParser.ts parses Amazon order detail pages with          │
+│ authoritative `data-component="..."` anchors (class names are churn-prone): │
+│   data-component="shipments"         — wraps the ordered items section      │
+│   data-component="purchasedItems"    — one per ordered product line         │
+│   data-component="orderDate"         — Order time text                      │
+│                                                                             │
+│ Items are scoped STRICTLY inside data-component="shipments" so p13n         │
+│ recommendation carousels ("Customers who viewed…") are excluded. Order      │
+│ number prefers the labeled "Order #" occurrence over 3-7-7 patterns that    │
+│ show up in nav / "recent orders" sidebars.                                  │
+│                                                                             │
+│ Endpoints:                                                                  │
+│ ├── POST /api/import/amazon/create-from-detail   (Add-Order shortcut)       │
+│ └── POST /api/import/amazon/enrich-order/:orderId (Edit-order enrichment)   │
+│     Matches items by ASIN (10-char [A-Z0-9]) extracted from product_url.    │
+│                                                                             │
+│ OrderForm routing: the edit-mode "Import detail page" button auto-picks     │
+│ aliexpress vs amazon based on order.importSource.                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+15. Pack-Size Detection + Component Quantity Sync
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Problem: buying "10 PCS Jumper Wire" at qty 1 should add 10 physical units, │
+│ not 1. AliExpress often encodes the chosen pack in a SKU variation ("30PCS" │
+│ / "5 sets"), so title alone isn't enough.                                   │
+│                                                                             │
+│ server/utils/packSize.ts#parsePackSize(title, variation?)                   │
+│ ├── Variation wins over title (variation reflects what was actually bought) │
+│ ├── Patterns: Npcs / pieces / N-Pack / Pack of N / N sets / N lots /        │
+│ │   N bundles / N count / N / lot                                           │
+│ └── Plausibility bounds: [2, 10000]                                         │
+│                                                                             │
+│ Storage: order_items.pack_size (INTEGER DEFAULT 1, migration v14).          │
+│                                                                             │
+│ Component quantity math:                                                    │
+│ ├── INSERT: components.quantity = qty × pack_size                           │
+│ ├── Enrich UPDATE: delta = (new_qty × new_pack) − (old_qty × old_pack);     │
+│ │   components.quantity += delta (rebalances retroactively)                 │
+│ └── Status transition to cancelled/returned: components.quantity -=         │
+│     qty × pack_size; transition back adds it back.                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
 13. Order Creation From Detail Page (Add-Order shortcut)
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ Sibling of #12 for the Add-Order flow. Same parser, same cost math, same    │

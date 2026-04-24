@@ -43,7 +43,9 @@ export interface Component {
   supplier?: string;
   purchaseDate?: string;
   unitCost?: number;
+  listUnitCost?: number;
   totalCost?: number;
+  listTotalCost?: number;
 
   // QR Code generation
   qrCode?: string;
@@ -159,7 +161,8 @@ export interface Order {
   notes?: string;
   totalAmount?: number;
   tax?: number;
-  status: 'pending' | 'ordered' | 'shipped' | 'delivered' | 'cancelled';
+  importSource?: string;
+  status: 'pending' | 'ordered' | 'shipped' | 'delivered' | 'cancelled' | 'returned';
   createdAt: string;
   updatedAt: string;
 }

@@ -340,6 +340,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
               />
+              <small className="form-help">Physical units on hand. Order imports seed this automatically (qty × pack size); your edits override.</small>
             </div>
             <div className="form-group">
               <label className="form-label">Min Threshold</label>
@@ -358,11 +359,12 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
               <label className="form-label">Unit Cost ($)</label>
               <input
                 type="number"
-                step="0.01"
+                step="0.0001"
                 className="form-input"
                 value={formData.unitCost}
                 onChange={(e) => setFormData({ ...formData, unitCost: parseFloat(e.target.value) || 0 })}
               />
+              <small className="form-help">Per-unit cost. Leave 0 to let the app fall back to the per-physical-unit cost derived from delivered orders.</small>
             </div>
             <div className="form-group">
               <label className="form-label">Supplier</label>

@@ -3986,6 +3986,13 @@ label.btn {
   font-weight: 600;
 }
 
+.import-from-detail-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  align-self: flex-start;
+}
+
 .order-items-section .order-items {
   display: flex;
   align-items: center;
@@ -4288,6 +4295,13 @@ label.btn {
   margin-top: 2px;
 }
 
+.unit-cost-per-unit {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 .item-variation {
   display: block;
   font-size: 12px;
@@ -4575,6 +4589,11 @@ label.btn {
 .status-badge.status-cancelled {
   background: #ffebee;
   color: #c62828;
+}
+
+.status-badge.status-returned {
+  background: #fce4ec;
+  color: #ad1457;
 }
 
 /* Responsive Design */

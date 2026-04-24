@@ -298,10 +298,10 @@ export function Orders() {
           calculatedTotal + tax expression as the summary cards + dashboard. */}
       {orders.length > 0 && (() => {
         const totalItems = orders.reduce((sum, o) => sum + ((o as any).itemCount || 0), 0);
-        // Cost excludes cancelled orders — refunded money shouldn't inflate
-        // the Total chip even when cancelled orders are visible in the list.
+        // Cost excludes cancelled AND returned orders — refunded money
+        // shouldn't inflate the Total chip even when those rows are visible.
         const totalCost = orders
-          .filter(o => o.status !== 'cancelled')
+          .filter(o => o.status !== 'cancelled' && o.status !== 'returned')
           .reduce(
             (sum, o) => sum + (Number((o as any).calculatedTotal) || 0) + (Number((o as any).tax) || 0),
             0

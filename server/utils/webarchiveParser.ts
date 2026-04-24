@@ -121,8 +121,12 @@ export class WebarchiveParser {
     if (filename.includes('?')) filename = filename.split('?')[0];
     if (!filename.includes('.')) filename += this.getExtensionFromContentType(contentType);
     filename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    if (filename.length < 5 || filename.startsWith('image_')) {
-      const hash = crypto.createHash('md5').update(url).digest('hex').substring(0, 8);
+    // data: URLs (inline SVG, tiny PNGs, etc.) turn into absurdly long
+    // "filenames" that trip ENAMETOOLONG on the filesystem. Fall back to a
+    // hashed stub whenever the sanitized name is too long or too generic.
+    const tooLong = filename.length > 80;
+    if (tooLong || filename.length < 5 || filename.startsWith('image_')) {
+      const hash = crypto.createHash('md5').update(url).digest('hex').substring(0, 12);
       filename = `img_${hash}${this.getExtensionFromContentType(contentType)}`;
     }
     return filename;

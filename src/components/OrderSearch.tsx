@@ -101,6 +101,7 @@ export function OrderSearch({
               <option value="shipped">Shipped</option>
               <option value="delivered">Delivered</option>
               <option value="cancelled">Cancelled</option>
+              <option value="returned">Returned</option>
             </select>
           </div>
 

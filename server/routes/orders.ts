@@ -19,7 +19,7 @@ const orderSchema = z.object({
   orderNumber: z.string().optional(),
   notes: z.string().optional(),
   totalAmount: z.number().optional(),
-  status: z.enum(['pending', 'ordered', 'shipped', 'delivered', 'cancelled']).default('delivered'),
+  status: z.enum(['pending', 'ordered', 'shipped', 'delivered', 'cancelled', 'returned']).default('delivered'),
   items: z.array(z.object({
     componentId: z.string(),
     quantity: z.number().min(1),
@@ -34,7 +34,7 @@ const orderUpdateSchema = z.object({
   orderNumber: z.string().optional(),
   notes: z.string().optional(),
   totalAmount: z.number().optional(),
-  status: z.enum(['pending', 'ordered', 'shipped', 'delivered', 'cancelled']).optional()
+  status: z.enum(['pending', 'ordered', 'shipped', 'delivered', 'cancelled', 'returned']).optional()
 });
 
 const bulkDeleteSchema = z.object({
@@ -51,6 +51,7 @@ const mapOrderRow = (row: any) => ({
   totalAmount: row.total_amount,
   tax: row.tax,
   status: row.status,
+  importSource: row.import_source,
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -63,6 +64,7 @@ const mapOrderItemRow = (row: any) => ({
   quantity: row.quantity,
   unitCost: row.unit_cost,
   listUnitCost: row.list_unit_cost,
+  packSize: row.pack_size || 1,
   totalCost: row.total_cost,
   notes: row.notes,
   productTitle: row.product_title,
@@ -101,15 +103,24 @@ router.get('/', (req, res) => {
     
     const params: any[] = [];
 
-    // Search term - search in order number, supplier, and notes
+    // Search term — matches order number, supplier, notes, OR any item
+    // title / component name on the order (covers "I bought X somewhere
+    // once, where?" queries). The item-side match uses EXISTS to keep the
+    // outer LEFT JOIN aggregate clean (no duplicate rows).
     if (term && typeof term === 'string') {
       query += ` AND (
-        o.order_number LIKE ? OR 
-        o.supplier LIKE ? OR 
-        o.notes LIKE ?
+        o.order_number LIKE ? OR
+        o.supplier LIKE ? OR
+        o.notes LIKE ? OR
+        EXISTS (
+          SELECT 1 FROM order_items oi2
+          LEFT JOIN components c2 ON oi2.component_id = c2.id
+          WHERE oi2.order_id = o.id
+            AND (oi2.product_title LIKE ? OR c2.name LIKE ?)
+        )
       )`;
       const searchTerm = `%${term}%`;
-      params.push(searchTerm, searchTerm, searchTerm);
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
     }
 
     // Status filter
@@ -340,6 +351,33 @@ router.put('/:id', validateSchema(orderUpdateSchema), (req, res) => {
     const db = getDb(req);
     const { id } = req.params;
     const updateData = req.body;
+
+    // When an order transitions into / out of a state that removes it
+    // from inventory ('cancelled' or 'returned'), roll the component
+    // quantities in sync. The stored contribution per line is
+    // quantity × pack_size (pack_size defaults to 1 for legacy rows).
+    const current = db.prepare('SELECT status FROM orders WHERE id = ?').get(id) as { status: string } | undefined;
+    if (!current) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const inactiveStatuses = new Set(['cancelled', 'returned']);
+    const wasInactive = inactiveStatuses.has(current.status);
+    const willBeInactive = updateData.status !== undefined && inactiveStatuses.has(updateData.status);
+
+    if (updateData.status && wasInactive !== willBeInactive) {
+      const items = db.prepare(`
+        SELECT component_id, quantity, pack_size
+        FROM order_items WHERE order_id = ? AND component_id IS NOT NULL
+      `).all(id) as Array<{ component_id: string; quantity: number; pack_size: number | null }>;
+      const adjust = db.prepare('UPDATE components SET quantity = quantity + ?, updated_at = datetime(\'now\') WHERE id = ?');
+      // Transition inactive → active: add stock back.
+      // Transition active → inactive: remove stock.
+      const sign = willBeInactive ? -1 : 1;
+      for (const it of items) {
+        const units = sign * (Number(it.quantity) || 0) * (Number(it.pack_size) || 1);
+        if (units !== 0) adjust.run(units, it.component_id);
+      }
+    }
 
     const updateStmt = db.prepare(`
       UPDATE orders SET

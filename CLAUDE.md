@@ -155,6 +155,22 @@ The AliExpress import system has three sibling parsers feeding into one orchestr
 
 **UI reminder to expand the breakdown**: the OrderForm's detail-upload UI (both the create-mode banner and the edit-mode button tooltip) tells the user to expand the "Total" section on AliExpress before saving. Without that expansion, Store discount / Coin credit / Additional charges / Bonus rows aren't in the saved DOM.
 
+**Amazon detail import**: `server/utils/amazonParser.ts` parses Amazon's order detail DOM using `data-component="shipments"` / `purchasedItems` / `orderDate` anchors (Amazon's class names are churn-prone, `data-component` is stable). Items are scoped strictly inside the `shipments` block so recommendation carousels (`p13n-*`, "Customers who viewed…") are excluded. Order number prefers the labeled `Order #` occurrence over scattered 3-7-7 matches that appear in sibling/recent-order links. Sibling endpoints:
+- `POST /api/import/amazon/create-from-detail` (Add-Order shortcut).
+- `POST /api/import/amazon/enrich-order/:orderId` — matches `order_items` by ASIN extracted from `product_url`.
+
+The OrderForm's Edit-mode "Import detail page" button auto-picks between the AliExpress and Amazon endpoints based on `orders.import_source` surfaced as `order.importSource` in the API. Label and tooltip adapt accordingly.
+
+**Pack size detection**: `server/utils/packSize.ts#parsePackSize(title, variation?)` — variation-first, title-fallback. Patterns match `Npcs / N pieces / N-Pack / Pack of N / N sets / N lots / N bundles / N count / N / lot`. Plausibility filters reject pack sizes outside `[2, 10000]`. Called from every import INSERT path; detail-enrich routes also recompute on every UPDATE and rebalance `components.quantity` by the units-in-stock delta (`new_qty × new_pack − old_qty × old_pack`) so re-uploading a detail page retroactively corrects stock.
+
+**List vs paid cost**: `order_items.list_unit_cost` (v9) stores the raw pre-discount listing price, `unit_cost` stores the discount-factor-scaled value that's used to compute line totals. `getComponentCalculatedCosts` aggregates both across delivered orders and exposes `listUnitCost` + `listTotalCost` on the Component API — rendered in ComponentDetailView as a muted strikethrough beneath the paid value when they differ.
+
+**Returned status + spend totals**: Excluded from Dashboard spend totals and Orders page Total chip alongside `cancelled`. Transitioning an order into `returned` or `cancelled` via `PUT /api/orders/:id` subtracts `quantity × pack_size` from linked components' stock; transitioning out adds it back. Pending Orders count excludes both states as well.
+
+**Components sort default**: `GET /api/components` re-sorts in JS to "most recently acquired first" when no `sortBy` is specified. Acquired-at key = `MAX(o.order_date) WHERE status NOT IN ('cancelled', 'returned')`, falling back to `component.createdAt`. Explicit `sortBy` preserves behaviour.
+
+**Component form editability**: `components.quantity` and `components.unit_cost` are directly user-editable via the form. Imports seed them (qty × pack_size on insert; status-transition PUT adjusts them). The mapper returns `row.quantity` / `row.unit_cost` as the primary values and only uses the aggregation as a fallback when no stored value exists. `onOrderQuantity` is live-derived from pending/shipped orders (never replaces stored quantity).
+
 **`list_unit_cost` column**: nullable REAL on `order_items`. Pre-existing rows stay NULL; only rows enriched via detail-page upload get the pre-discount list price populated. The OrderDetailView shows it as a muted strikethrough beneath the paid `unit_cost` when list > paid.
 
 **Dashboard spend-totals formula**: the four spend-total cards (all-time, last 7 days, last 30 days, last 12 months) on the Dashboard all use the same per-order expression, defined once in `src/pages/Dashboard.tsx` as `orderCost(order) = (Number(order.calculatedTotal) || 0) + (Number(order.tax) || 0)`:
@@ -177,7 +193,7 @@ server: {
 ```
 
 ### Database Schema Evolution
-Current schema version: 13 (automatic migrations handle upgrades)
+Current schema version: 15 (automatic migrations handle upgrades)
 
 **Self-healing schema migrations (v10, v11, v12, v13)**: dev DBs occasionally land in a state where `schema_version` records a high version but the underlying tables are missing columns earlier migrations were supposed to add (e.g. after a Factory Reset re-created tables from stale `CREATE`s while leaving `schema_version` intact). The self-healing migrations introspect with `PRAGMA table_info` and idempotently `ALTER TABLE ... ADD COLUMN` any missing columns:
 
@@ -185,6 +201,8 @@ Current schema version: 13 (automatic migrations handle upgrades)
 - **v11** heals `projects` (`start_date`, `completed_date`, `notes`, `tags`).
 - **v12** heals `components` (`dimensions`, `weight`, `voltage`, `current`, `pin_count`, `protocols`, `supplier` — the columns v8 was supposed to add).
 - **v13** adds `orders.tax` (REAL DEFAULT 0). Populated by detail-page enrichment / creation from the AliExpress "Additional charges" line; nullable for pre-existing rows.
+- **v14** adds `order_items.pack_size` (INTEGER DEFAULT 1). Units-in-inventory for a line = `quantity × pack_size`. Detected from product title and/or SKU variation by `server/utils/packSize.ts`.
+- **v15** rebuilds `orders` to widen the `status` CHECK to include `returned`. SQLite can't alter CHECK in place; migration turns off FKs, copies rows into a new table with the expanded constraint, renames, recreates indexes. Idempotent.
 
 When you write new column-add migrations, prefer this pattern (PRAGMA-guarded, not just version-counter-gated) so column drift across DBs heals automatically.
 - **Database Path Logic**: Test environment uses unique DB per run, dev uses `inventory-dev.db`, production uses `inventory.db`

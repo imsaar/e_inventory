@@ -318,18 +318,34 @@ export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: 
                 <div className="detail-grid">
                   {component.unitCost && (
                     <div className="detail-item">
-                      <label>Unit Cost</label>
+                      <label>Unit Cost (paid)</label>
                       <div className="detail-value cost-value">
                         {formatCurrency(component.unitCost)}
+                        {component.listUnitCost && component.listUnitCost > component.unitCost && (
+                          <span
+                            className="unit-cost-strikethrough"
+                            title="Pre-discount list price — total listing price (no store discount, coin credit, or bonus) divided by physical units acquired"
+                          >
+                            {formatCurrency(component.listUnitCost)} list
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
 
                   {component.totalCost && (
                     <div className="detail-item">
-                      <label>Total Cost</label>
+                      <label>Total Cost (paid)</label>
                       <div className="detail-value cost-value">
                         {formatCurrency(component.totalCost)}
+                        {component.listTotalCost && component.listTotalCost > component.totalCost && (
+                          <span
+                            className="unit-cost-strikethrough"
+                            title="Pre-discount list total (sum of listing prices across delivered orders)"
+                          >
+                            {formatCurrency(component.listTotalCost)} list
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}

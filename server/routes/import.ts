@@ -5,6 +5,8 @@ import fs from 'fs/promises';
 import fetch from 'node-fetch';
 import defaultDb from '../database';
 import { AliExpressHTMLParser } from '../utils/aliexpressParser';
+import { AmazonHTMLParser } from '../utils/amazonParser';
+import { parsePackSize } from '../utils/packSize';
 // import { authenticate } from '../middleware/auth'; // Removed for testing
 import { validateImportRequest } from '../middleware/validation';
 
@@ -293,10 +295,14 @@ router.post('/aliexpress/import', async (req, res) => {
           // Process order items
           for (const item of orderData.items) {
             try {
-              let componentId: string | null = null;
+              // Detected pack size (e.g. "10 PCS" → 10). 1 means no multipack.
+              // The component's inventory contribution = quantity × pack_size.
+              const variationText = item.specifications?.Variation || item.variation;
+              const packSize = parsePackSize(item.productTitle, variationText);
 
+              let componentId: string | null = null;
               if (item.parsedComponent && importOptions?.createComponents !== false) {
-                componentId = await createOrUpdateComponent(db, item, importOptions);
+                componentId = await createOrUpdateComponent(db, { ...item, packSize }, importOptions);
                 if (componentId) {
                   results.componentIds.push(componentId);
                 }
@@ -319,10 +325,10 @@ router.post('/aliexpress/import', async (req, res) => {
               
               db.prepare(`
                 INSERT INTO order_items (
-                  id, order_id, component_id, product_title, product_url, image_url, 
-                  local_image_path, quantity, unit_cost, specifications, variation,
+                  id, order_id, component_id, product_title, product_url, image_url,
+                  local_image_path, quantity, unit_cost, pack_size, specifications, variation,
                   import_confidence, manual_review, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).run(
                 orderItemId,
                 orderId,
@@ -333,6 +339,7 @@ router.post('/aliexpress/import', async (req, res) => {
                 item.localImagePath || null,
                 item.quantity,
                 item.unitPrice,
+                packSize,
                 item.specifications ? JSON.stringify(item.specifications) : null,
                 item.specifications?.Variation || null,
                 importConfidence,
@@ -489,8 +496,11 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
     }
 
     // Fetch existing order_items with their product URLs + linked components.
+    // quantity + pack_size are needed so enrichment can re-sync
+    // components.quantity by the (new - old) units-in-stock delta.
     const existingItems = db.prepare(`
-      SELECT id, component_id, product_url, image_url, local_image_path
+      SELECT id, component_id, product_url, image_url, local_image_path,
+             quantity, pack_size
       FROM order_items
       WHERE order_id = ?
     `).all(orderId) as Array<{
@@ -499,6 +509,8 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
       product_url: string | null;
       image_url: string | null;
       local_image_path: string | null;
+      quantity: number | null;
+      pack_size: number | null;
     }>;
 
     // Matching strategy:
@@ -620,6 +632,15 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
         // table stores REAL so anything more is noise.
         const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
 
+        // Pack-size detection uses title AND variation (AliExpress often
+        // puts the chosen pack in the SKU variant like "30PCS" or "5 sets").
+        // Compute old vs new units-in-stock so we can rebalance the linked
+        // component's quantity below.
+        const newPackSize = parsePackSize(detail.productTitle, detail.variation);
+        const oldUnits = (Number(row.quantity) || 0) * (Number(row.pack_size) || 1);
+        const newUnits = (Number(detail.quantity) || 0) * newPackSize;
+        const unitsDelta = newUnits - oldUnits;
+
         // total_cost is GENERATED from quantity * unit_cost, so it's
         // omitted from the UPDATE. product_url / variation are backfilled
         // so orphan "AliExpress item unknown-N" rows become matchable on
@@ -630,6 +651,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
               quantity = ?,
               unit_cost = ?,
               list_unit_cost = ?,
+              pack_size = ?,
               product_url = COALESCE(?, product_url),
               variation = COALESCE(?, variation),
               local_image_path = COALESCE(?, local_image_path),
@@ -640,6 +662,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
           detail.quantity,
           effectiveUnitCost,
           detail.unitPrice,
+          newPackSize,
           detail.productUrl || null,
           detail.variation || null,
           detail.localImagePath || null,
@@ -648,11 +671,11 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
         results.orderItemIds.push(row.id);
         results.updated++;
 
-        // The detail page is authoritative — rename the linked component
-        // when the name differs, and fill in its image if missing. When a
-        // row has no linked component (shouldn't happen with the current
-        // importer but happens for pre-existing rows), create one now and
-        // link it so the rename always lands.
+        // The detail page is authoritative — rename the linked component,
+        // fill in its image if missing, and rebalance its quantity by the
+        // units delta. When a row has no linked component (shouldn't
+        // happen with the current importer but happens for pre-existing
+        // rows), create one now and seed its quantity from newUnits.
         let componentId = row.component_id;
         if (!componentId) {
           componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -666,7 +689,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
             detail.productTitle,
             null,
             'Electronic Component',
-            detail.quantity || 0,
+            newUnits,
             0,
             detail.localImagePath || null,
             'available',
@@ -683,11 +706,13 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
             UPDATE components
             SET name = ?,
                 image_url = COALESCE(image_url, ?),
+                quantity = quantity + ?,
                 updated_at = ?
             WHERE id = ?
           `).run(
             detail.productTitle,
             detail.localImagePath || null,
+            unitsDelta,
             now,
             componentId
           );
@@ -701,6 +726,8 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
       // the detail page actually has.
       for (const detail of leftoverAfterOrphans) {
         const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
+        const packSize = parsePackSize(detail.productTitle, detail.variation);
+        const unitsInStock = (detail.quantity || 0) * packSize;
 
         const componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         db.prepare(`
@@ -713,7 +740,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
           detail.productTitle,
           null,
           'Electronic Component',
-          detail.quantity || 0,
+          unitsInStock,
           0,
           detail.localImagePath || null,
           'available',
@@ -725,9 +752,9 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
         db.prepare(`
           INSERT INTO order_items (
             id, order_id, component_id, product_title, product_url,
-            local_image_path, quantity, unit_cost, list_unit_cost,
+            local_image_path, quantity, unit_cost, list_unit_cost, pack_size,
             variation, import_confidence, manual_review, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           orderItemId,
           order.id,
@@ -738,6 +765,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
           detail.quantity,
           effectiveUnitCost,
           detail.unitPrice,
+          packSize,
           detail.variation || null,
           0.9,
           0,
@@ -771,6 +799,187 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
     console.error('enrich-order error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Failed to enrich order',
+    });
+  } finally {
+    if (tempFilePath) {
+      fs.unlink(tempFilePath).catch(() => undefined);
+    }
+  }
+});
+
+/**
+ * Enrich an existing Amazon-sourced order with an uploaded order detail
+ * page. Mirrors the AliExpress enrich endpoint but uses the Amazon
+ * parser's selectors. Matches items by ASIN (productId) and updates
+ * product_title, quantity, unit_cost, pack_size, and the linked
+ * component's name + image. Rejects with 409 when the detail page's
+ * order number doesn't match the order being edited.
+ */
+router.post('/amazon/enrich-order/:orderId', (req, res, next) => {
+  upload.single('detailFile')(req, res, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  const { orderId } = req.params;
+  let tempFilePath: string | null = null;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'detailFile is required' });
+    }
+    tempFilePath = req.file.path;
+    const db = getDb(req);
+
+    const order = db.prepare('SELECT id, order_number FROM orders WHERE id = ?').get(orderId) as
+      { id: string; order_number: string | null } | undefined;
+    if (!order) {
+      return res.status(404).json({ error: `Order ${orderId} not found` });
+    }
+
+    const fileBuffer = await fs.readFile(tempFilePath);
+    const parser = new AmazonHTMLParser('./uploads/imported-images');
+    const {
+      orderNumber: detailOrderNumber,
+      items: detailItems,
+      subtotal: detailSubtotal,
+      total: rawDetailTotal,
+      tax: detailTax,
+    } = await parser.parseOrderDetail(fileBuffer);
+
+    if (detailOrderNumber && order.order_number && detailOrderNumber !== order.order_number) {
+      return res.status(409).json({
+        error: `Uploaded detail page is for order ${detailOrderNumber}, but you are editing order ${order.order_number}.`,
+      });
+    }
+    if (detailItems.length === 0) {
+      return res.status(422).json({
+        error: 'Could not extract any items from the uploaded Amazon detail page.',
+      });
+    }
+
+    let detailTotal = rawDetailTotal;
+    if (detailSubtotal && detailTotal && !detailTax && detailSubtotal < detailTotal) {
+      detailTotal = detailSubtotal;
+    }
+
+    const taxAmount = detailTax ?? 0;
+    const itemsCost = Math.max(0, (detailTotal ?? 0) - taxAmount) || detailTotal || 0;
+    const effectiveTotal = itemsCost + taxAmount;
+    const discountFactor = (
+      detailSubtotal && itemsCost && detailSubtotal > 0 && itemsCost > 0 && itemsCost < detailSubtotal
+    ) ? itemsCost / detailSubtotal : 1;
+
+    // Match existing order_items by ASIN extracted from their product_url.
+    // quantity + pack_size are pulled so enrichment can rebalance the
+    // linked component's stock by the (new - old) units delta.
+    const existingItems = db.prepare(`
+      SELECT id, component_id, product_url, quantity, pack_size
+      FROM order_items WHERE order_id = ?
+    `).all(orderId) as Array<{
+      id: string;
+      component_id: string | null;
+      product_url: string | null;
+      quantity: number | null;
+      pack_size: number | null;
+    }>;
+    const asinOf = (url: string | null) => {
+      const m = (url || '').match(/\/(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})/);
+      return m ? m[1] : null;
+    };
+    const byAsin = new Map<string, typeof existingItems[0]>();
+    for (const it of existingItems) {
+      const a = asinOf(it.product_url);
+      if (a) byAsin.set(a, it);
+    }
+
+    const results = {
+      detailItems: detailItems.length,
+      matched: 0,
+      updated: 0,
+      componentsRenamed: 0,
+      subtotal: detailSubtotal,
+      total: detailTotal,
+      tax: taxAmount,
+      itemsCost,
+      effectiveTotal,
+      discountFactor,
+      unmatched: [] as Array<{ productId: string; productTitle: string }>,
+      orderItemIds: [] as string[],
+    };
+
+    db.exec('BEGIN TRANSACTION');
+    try {
+      const now = new Date().toISOString();
+      for (const detail of detailItems) {
+        const row = byAsin.get(detail.productId);
+        if (!row) {
+          results.unmatched.push({ productId: detail.productId, productTitle: detail.productTitle });
+          continue;
+        }
+        results.matched++;
+        const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
+        const packSize = parsePackSize(detail.productTitle, detail.variation);
+        const oldUnits = (Number(row.quantity) || 0) * (Number(row.pack_size) || 1);
+        const newUnits = (Number(detail.quantity) || 0) * packSize;
+        const unitsDelta = newUnits - oldUnits;
+
+        db.prepare(`
+          UPDATE order_items SET
+            product_title = ?,
+            quantity = ?,
+            unit_cost = ?,
+            list_unit_cost = ?,
+            pack_size = ?,
+            product_url = COALESCE(?, product_url),
+            local_image_path = COALESCE(?, local_image_path),
+            manual_review = 0
+          WHERE id = ?
+        `).run(
+          detail.productTitle,
+          detail.quantity,
+          effectiveUnitCost,
+          detail.unitPrice,
+          packSize,
+          detail.productUrl || null,
+          detail.localImagePath || null,
+          row.id
+        );
+        results.orderItemIds.push(row.id);
+        results.updated++;
+
+        if (row.component_id) {
+          const current = db.prepare('SELECT name FROM components WHERE id = ?').get(row.component_id) as { name: string } | undefined;
+          const nameChanged = !!current && current.name !== detail.productTitle;
+          db.prepare(`
+            UPDATE components SET
+              name = ?,
+              image_url = COALESCE(image_url, ?),
+              quantity = quantity + ?,
+              updated_at = ?
+            WHERE id = ?
+          `).run(detail.productTitle, detail.localImagePath || null, unitsDelta, now, row.component_id);
+          if (nameChanged) results.componentsRenamed++;
+        }
+      }
+      if (effectiveTotal && effectiveTotal > 0) {
+        db.prepare('UPDATE orders SET total_amount = ?, tax = ?, updated_at = ? WHERE id = ?').run(
+          effectiveTotal,
+          taxAmount,
+          now,
+          order.id
+        );
+      }
+      db.exec('COMMIT');
+    } catch (dbErr) {
+      db.exec('ROLLBACK');
+      throw dbErr;
+    }
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('amazon enrich-order error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to enrich Amazon order',
     });
   } finally {
     if (tempFilePath) {
@@ -883,6 +1092,8 @@ router.post('/aliexpress/create-from-detail', (req, res, next) => {
 
       for (const detail of detailItems) {
         const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
+        const packSize = parsePackSize(detail.productTitle, detail.variation);
+        const unitsInStock = (detail.quantity || 0) * packSize;
         const componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         db.prepare(`
           INSERT INTO components (
@@ -894,7 +1105,7 @@ router.post('/aliexpress/create-from-detail', (req, res, next) => {
           detail.productTitle,
           null,
           'Electronic Component',
-          detail.quantity || 0,
+          unitsInStock,
           0,
           detail.localImagePath || null,
           'available',
@@ -906,9 +1117,9 @@ router.post('/aliexpress/create-from-detail', (req, res, next) => {
         db.prepare(`
           INSERT INTO order_items (
             id, order_id, component_id, product_title, product_url,
-            local_image_path, quantity, unit_cost, list_unit_cost,
+            local_image_path, quantity, unit_cost, list_unit_cost, pack_size,
             variation, import_confidence, manual_review, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           orderItemId,
           orderId,
@@ -919,6 +1130,7 @@ router.post('/aliexpress/create-from-detail', (req, res, next) => {
           detail.quantity,
           effectiveUnitCost,
           detail.unitPrice,
+          packSize,
           detail.variation || null,
           0.9,
           0,
@@ -965,6 +1177,195 @@ router.post('/aliexpress/create-from-detail', (req, res, next) => {
     console.error('create-from-detail error:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Failed to create order from detail page',
+    });
+  } finally {
+    if (tempFilePath) {
+      fs.unlink(tempFilePath).catch(() => undefined);
+    }
+  }
+});
+
+/**
+ * Create a brand-new order from an Amazon order detail page. Structural
+ * sibling of /aliexpress/create-from-detail — same cost decomposition
+ * (items + tax = orders.total_amount, line totals sum to itemsCost),
+ * same 409 behaviour when the order_number already exists.
+ *
+ * Amazon doesn't expose "Store discount" or "Coin credit" the way
+ * AliExpress does, so the subtotal→total delta is usually just
+ * shipping-and-handling + promo/coupon. We still run the same
+ * discountFactor math so unit_cost ends up post-discount; any
+ * shipping/handling fold into the item-level discount factor (acceptable
+ * because Amazon shipping is tied to individual items).
+ */
+router.post('/amazon/create-from-detail', (req, res, next) => {
+  upload.single('detailFile')(req, res, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  let tempFilePath: string | null = null;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'detailFile is required' });
+    }
+    tempFilePath = req.file.path;
+    const db = getDb(req);
+
+    const fileBuffer = await fs.readFile(tempFilePath);
+    const parser = new AmazonHTMLParser('./uploads/imported-images');
+    const {
+      orderNumber,
+      orderDate,
+      sellerName,
+      items: detailItems,
+      subtotal: detailSubtotal,
+      total: rawDetailTotal,
+      tax: detailTax,
+    } = await parser.parseOrderDetail(fileBuffer);
+
+    // Same clamp rule as AliExpress: if total > subtotal with no tax row,
+    // the untagged overage is almost certainly tax — pin total to subtotal.
+    let detailTotal = rawDetailTotal;
+    if (detailSubtotal && detailTotal && !detailTax && detailSubtotal < detailTotal) {
+      detailTotal = detailSubtotal;
+    }
+
+    if (!orderNumber) {
+      return res.status(422).json({
+        error: 'Could not find an Amazon order number (XXX-XXXXXXX-XXXXXXX) on the uploaded page. Make sure you saved the order DETAIL page from Your Orders.',
+      });
+    }
+    if (detailItems.length === 0) {
+      return res.status(422).json({
+        error: 'No items found on the uploaded Amazon detail page.',
+      });
+    }
+
+    const existing = db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as
+      { id: string } | undefined;
+    if (existing) {
+      return res.status(409).json({
+        error: `Order ${orderNumber} already exists. Open it from the Orders list to edit.`,
+        existingOrderId: existing.id,
+      });
+    }
+
+    const taxAmount = detailTax ?? 0;
+    const itemsCost = Math.max(0, (detailTotal ?? 0) - taxAmount) || detailTotal || detailSubtotal || 0;
+    const effectiveTotal = itemsCost + taxAmount;
+    const discountFactor = (
+      detailSubtotal && itemsCost && detailSubtotal > 0 && itemsCost > 0 && itemsCost < detailSubtotal
+    ) ? itemsCost / detailSubtotal : 1;
+
+    const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date().toISOString();
+    const orderDateFinal = orderDate || new Date().toISOString();
+    const supplier = sellerName || 'Amazon';
+
+    db.exec('BEGIN TRANSACTION');
+    try {
+      db.prepare(`
+        INSERT INTO orders (
+          id, order_date, supplier, order_number, supplier_order_id,
+          notes, total_amount, tax, import_source, import_date,
+          status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        orderId,
+        orderDateFinal,
+        supplier,
+        orderNumber,
+        orderNumber,
+        'Imported from Amazon order detail page',
+        effectiveTotal,
+        taxAmount,
+        'amazon',
+        now,
+        'delivered',
+        now,
+        now
+      );
+
+      for (const detail of detailItems) {
+        const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
+        const packSize = parsePackSize(detail.productTitle, detail.variation);
+        const unitsInStock = (detail.quantity || 0) * packSize;
+        const componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+          INSERT INTO components (
+            id, name, description, category, quantity, min_threshold,
+            image_url, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          componentId,
+          detail.productTitle,
+          null,
+          'Electronic Component',
+          unitsInStock,
+          0,
+          detail.localImagePath || null,
+          'available',
+          now,
+          now
+        );
+
+        const orderItemId = `oit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        db.prepare(`
+          INSERT INTO order_items (
+            id, order_id, component_id, product_title, product_url,
+            local_image_path, quantity, unit_cost, list_unit_cost, pack_size,
+            variation, import_confidence, manual_review, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          orderItemId,
+          orderId,
+          componentId,
+          detail.productTitle,
+          detail.productUrl || null,
+          detail.localImagePath || null,
+          detail.quantity,
+          effectiveUnitCost,
+          detail.unitPrice,
+          packSize,
+          detail.variation || null,
+          0.9,
+          0,
+          'Imported from Amazon detail page'
+        );
+      }
+      db.exec('COMMIT');
+    } catch (dbErr) {
+      db.exec('ROLLBACK');
+      throw dbErr;
+    }
+
+    const warnings: string[] = [];
+    if (rawDetailTotal !== detailTotal) {
+      warnings.push(
+        `Total ($${rawDetailTotal!.toFixed(2)}) exceeded Subtotal ($${detailSubtotal!.toFixed(2)}) with no tax row detected — clamped Total to Subtotal.`
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      orderId,
+      orderNumber,
+      orderDate: orderDateFinal,
+      supplier,
+      itemCount: detailItems.length,
+      subtotal: detailSubtotal,
+      total: detailTotal,
+      tax: taxAmount,
+      itemsCost,
+      effectiveTotal,
+      discountFactor,
+      warnings,
+    });
+  } catch (error) {
+    console.error('amazon create-from-detail error:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to create order from Amazon detail page',
     });
   } finally {
     if (tempFilePath) {
@@ -1184,6 +1585,12 @@ async function createOrUpdateComponent(db: any, item: any, options: any): Promis
   const componentId = existingComponent?.id || `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const now = new Date().toISOString();
 
+  // Inventory contribution for this line = order-line qty × pack size.
+  // pack_size is supplied by the caller (parsed from title) and defaults
+  // to 1 for legacy callers.
+  const packSize = Number(item.packSize) || 1;
+  const unitsDelta = (Number(item.quantity) || 0) * packSize;
+
   if (existingComponent) {
     // Update existing component with new information
     if (options?.updateExisting) {
@@ -1194,7 +1601,7 @@ async function createOrUpdateComponent(db: any, item: any, options: any): Promis
           quantity = quantity + ?,
           updated_at = ?
         WHERE id = ?
-      `).run(component.description, item.localImagePath, item.quantity || 0, now, componentId);
+      `).run(component.description, item.localImagePath, unitsDelta, now, componentId);
     }
     return componentId;
   } else {
@@ -1202,7 +1609,7 @@ async function createOrUpdateComponent(db: any, item: any, options: any): Promis
     try {
       const result = db.prepare(`
         INSERT INTO components (
-          id, name, description, category, quantity, min_threshold, 
+          id, name, description, category, quantity, min_threshold,
           image_url, status, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -1210,7 +1617,7 @@ async function createOrUpdateComponent(db: any, item: any, options: any): Promis
         component.name,
         component.description || null,
         component.category || 'Electronic Component',
-        item.quantity || 0,
+        unitsDelta,
         0,
         item.localImagePath || item.imageUrl || null,
         'available',

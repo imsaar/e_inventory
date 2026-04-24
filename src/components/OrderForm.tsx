@@ -13,6 +13,7 @@ interface OrderItem {
   quantity: number;
   unitCost: number;
   totalCost: number;
+  packSize?: number;
   productTitle?: string;
   productUrl?: string;
   imageUrl?: string;
@@ -32,7 +33,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
     supplier: '',
     orderNumber: '',
     notes: '',
-    status: 'delivered' as 'pending' | 'ordered' | 'shipped' | 'delivered' | 'cancelled'
+    status: 'delivered' as 'pending' | 'ordered' | 'shipped' | 'delivered' | 'cancelled' | 'returned'
   });
 
   const [items, setItems] = useState<OrderItem[]>([]);
@@ -48,8 +49,9 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
   const [enrichingDetail, setEnrichingDetail] = useState(false);
   const [enrichStatus, setEnrichStatus] = useState<string | null>(null);
   const detailFileInputRef = useRef<HTMLInputElement | null>(null);
-  const createFromDetailInputRef = useRef<HTMLInputElement | null>(null);
-  const [creatingFromDetail, setCreatingFromDetail] = useState(false);
+  const createFromAliExpressInputRef = useRef<HTMLInputElement | null>(null);
+  const createFromAmazonInputRef = useRef<HTMLInputElement | null>(null);
+  const [creatingFromDetail, setCreatingFromDetail] = useState<null | 'aliexpress' | 'amazon'>(null);
   const [createFromDetailStatus, setCreateFromDetailStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
         quantity: item.quantity,
         unitCost: item.unitCost,
         totalCost: item.unitCost * item.quantity,
+        packSize: item.packSize || 1,
         productTitle: item.productTitle,
         productUrl: item.productUrl,
         imageUrl: item.imageUrl,
@@ -143,21 +146,28 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
     setItems(newItems);
   };
 
-  // Create a brand-new order from an uploaded AliExpress detail page —
-  // the "Add Order" shortcut. Seeds order_number, order_date, supplier,
-  // items (with variations), and total_amount from the detail page and
-  // closes the form on success so the Orders list can refresh.
-  const handleCreateFromDetailFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Create a brand-new order from an uploaded AliExpress or Amazon detail
+  // page — the "Add Order" shortcut. Seeds order_number, order_date,
+  // supplier, items, and total_amount from the detail page and closes the
+  // form on success so the Orders list can refresh.
+  const handleCreateFromDetailFileSelected = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    source: 'aliexpress' | 'amazon'
+  ) => {
     const file = e.target.files?.[0];
-    if (createFromDetailInputRef.current) createFromDetailInputRef.current.value = '';
+    const inputRef = source === 'aliexpress' ? createFromAliExpressInputRef : createFromAmazonInputRef;
+    if (inputRef.current) inputRef.current.value = '';
     if (!file) return;
 
-    setCreatingFromDetail(true);
+    setCreatingFromDetail(source);
     setCreateFromDetailStatus(`Uploading ${file.name}…`);
     try {
       const formData = new FormData();
       formData.append('detailFile', file);
-      const response = await fetch('/api/import/aliexpress/create-from-detail', {
+      const endpoint = source === 'aliexpress'
+        ? '/api/import/aliexpress/create-from-detail'
+        : '/api/import/amazon/create-from-detail';
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
@@ -171,13 +181,11 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
       setCreateFromDetailStatus(
         `Created order ${data.orderNumber} with ${data.itemCount} item${data.itemCount === 1 ? '' : 's'}, total $${Number(data.effectiveTotal ?? 0).toFixed(2)}.${warnParts}`
       );
-      // Brief pause so the user sees the confirmation, then close the form.
-      // Longer pause when there's a warning so they can read it.
       setTimeout(() => onSave(), warnParts ? 3500 : 600);
     } catch (err) {
       setCreateFromDetailStatus(`Import failed: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
-      setCreatingFromDetail(false);
+      setCreatingFromDetail(null);
     }
   };
 
@@ -196,7 +204,12 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
     try {
       const formData = new FormData();
       formData.append('detailFile', file);
-      const response = await fetch(`/api/import/aliexpress/enrich-order/${order.id}`, {
+      // Route the enrichment upload to the parser matching this order's
+      // source — Amazon detail pages have a different DOM than AliExpress
+      // and the AliExpress parser would mis-extract or bail on them.
+      const source = order.importSource === 'amazon' ? 'amazon' : 'aliexpress';
+      const endpoint = `/api/import/${source}/enrich-order/${order.id}`;
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
@@ -314,6 +327,12 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
     setItems(newItems);
   };
 
+  const updateItemPackSize = (index: number, packSize: number) => {
+    const newItems = [...items];
+    newItems[index].packSize = Math.max(1, Math.floor(packSize || 1));
+    setItems(newItems);
+  };
+
   const calculateTotalAmount = () => {
     return items.reduce((sum, item) => sum + item.totalCost, 0);
   };
@@ -385,28 +404,46 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
             {!order && (
               <div className="import-from-detail-banner">
                 <div className="import-from-detail-text">
-                  <strong>Shortcut:</strong> Seed this order from an AliExpress detail page
+                  <strong>Shortcut:</strong> Seed this order from an order detail page
                   (<code>.webarchive</code> / <code>.mhtml</code> / <code>.html</code>) — fills in order number, date, supplier, items, and totals.
                   <div className="import-from-detail-tip">
-                    <strong>Tip:</strong> on the AliExpress page, click the arrow next to <em>Total</em> to expand the price breakdown (Store discount, Coin credit, Additional charges, Bonus) <em>before</em> saving. Otherwise those rows aren't in the saved DOM and tax / bonus can't be attributed correctly.
+                    <strong>Tip (AliExpress only):</strong> click the arrow next to <em>Total</em> on the page to expand the price breakdown (Store discount, Coin credit, Additional charges, Bonus) <em>before</em> saving. Otherwise those rows aren't in the saved DOM and tax / bonus can't be attributed correctly.
                   </div>
                 </div>
                 <input
                   type="file"
-                  ref={createFromDetailInputRef}
+                  ref={createFromAliExpressInputRef}
                   accept=".html,.mhtml,.mht,.webarchive"
                   style={{ display: 'none' }}
-                  onChange={handleCreateFromDetailFileSelected}
+                  onChange={(e) => handleCreateFromDetailFileSelected(e, 'aliexpress')}
                 />
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-small"
-                  onClick={() => createFromDetailInputRef.current?.click()}
-                  disabled={creatingFromDetail}
-                >
-                  <Upload size={14} />
-                  {creatingFromDetail ? 'Importing…' : 'Import detail page'}
-                </button>
+                <input
+                  type="file"
+                  ref={createFromAmazonInputRef}
+                  accept=".html,.mhtml,.mht,.webarchive"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleCreateFromDetailFileSelected(e, 'amazon')}
+                />
+                <div className="import-from-detail-buttons">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => createFromAliExpressInputRef.current?.click()}
+                    disabled={creatingFromDetail !== null}
+                  >
+                    <Upload size={14} />
+                    {creatingFromDetail === 'aliexpress' ? 'Importing…' : 'AliExpress detail page'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-small"
+                    onClick={() => createFromAmazonInputRef.current?.click()}
+                    disabled={creatingFromDetail !== null}
+                  >
+                    <Upload size={14} />
+                    {creatingFromDetail === 'amazon' ? 'Importing…' : 'Amazon detail page'}
+                  </button>
+                </div>
                 {createFromDetailStatus && (
                   <div className="enrich-status" style={{ marginTop: 'var(--spacing-sm)' }}>
                     {createFromDetailStatus}
@@ -461,6 +498,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
                   <option value="shipped">Shipped</option>
                   <option value="delivered">Delivered</option>
                   <option value="cancelled">Cancelled</option>
+                  <option value="returned">Returned</option>
                 </select>
               </div>
             </div>
@@ -506,10 +544,20 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
                         className="btn btn-secondary btn-small"
                         onClick={() => detailFileInputRef.current?.click()}
                         disabled={enrichingDetail}
-                        title="Upload an order detail page (.webarchive / .mhtml / .html) to fill in per-item titles, quantities, and unit costs. Tip: on AliExpress, click the arrow next to Total to expand the price breakdown (Store discount, Coin credit, Additional charges, Bonus) BEFORE saving — otherwise tax and bonus can't be attributed."
+                        title={
+                          order.importSource === 'amazon'
+                            ? 'Upload an Amazon order detail page (.webarchive / .mhtml / .html) to fill in per-item titles, quantities, and unit costs.'
+                            : 'Upload an AliExpress order detail page (.webarchive / .mhtml / .html) to fill in per-item titles, quantities, unit costs, and discounts. Tip: click the arrow next to Total on AliExpress to expand the price breakdown BEFORE saving.'
+                        }
                       >
                         <Upload size={14} />
-                        {enrichingDetail ? 'Importing…' : 'Import detail page'}
+                        {enrichingDetail
+                          ? 'Importing…'
+                          : order.importSource === 'amazon'
+                            ? 'Import Amazon detail page'
+                            : order.importSource === 'aliexpress'
+                              ? 'Import AliExpress detail page'
+                              : 'Import detail page'}
                       </button>
                     </>
                   )}

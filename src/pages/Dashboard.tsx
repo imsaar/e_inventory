@@ -63,10 +63,10 @@ export function Dashboard() {
         sum + (comp.totalCost || 0), 0
       ) : 0;
 
-      // Spend totals exclude cancelled orders — money from cancelled orders
-      // was refunded so it shouldn't count against spend.
+      // Spend totals exclude cancelled AND returned orders — refunded
+      // money shouldn't count against spend either way.
       const spendableOrders = Array.isArray(orders)
-        ? orders.filter((order: any) => order.status !== 'cancelled')
+        ? orders.filter((order: any) => order.status !== 'cancelled' && order.status !== 'returned')
         : [];
 
       // Sum from the API's calculatedTotal (SUM of order_items.total_cost)
@@ -93,10 +93,10 @@ export function Dashboard() {
       const totalOrderValueLast30Days = sumOrdersSince(thirtyDaysAgo);
       const totalOrderValueLast12Months = sumOrdersSince(twelveMonthsAgo);
 
-      // Count orders that are not delivered *and* not cancelled — cancelled
-      // orders aren't pending delivery either.
+      // Count orders that are actually pending delivery — exclude delivered,
+      // cancelled (never coming), and returned (already received & returned).
       const pendingOrders = Array.isArray(orders) ? orders.filter((order: any) =>
-        order.status !== 'delivered' && order.status !== 'cancelled'
+        order.status !== 'delivered' && order.status !== 'cancelled' && order.status !== 'returned'
       ).length : 0;
 
       setStats({

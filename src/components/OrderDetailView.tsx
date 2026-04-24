@@ -11,6 +11,7 @@ interface OrderItem {
   quantity: number;
   unitCost: number;
   listUnitCost?: number | null;
+  packSize?: number;
   totalCost: number;
   notes?: string;
   productTitle?: string;
@@ -308,6 +309,14 @@ export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDet
                         {typeof item.listUnitCost === 'number' && item.listUnitCost > item.unitCost && (
                           <span className="unit-cost-strikethrough" title="Detail-page list price before store discount + coin credit">
                             {formatCurrency(item.listUnitCost)}
+                          </span>
+                        )}
+                        {item.packSize && item.packSize > 1 && (
+                          <span
+                            className="unit-cost-per-unit"
+                            title={`Pack of ${item.packSize} — per-unit cost = unit price ÷ pack size`}
+                          >
+                            pack of {item.packSize}, {formatCurrency(item.unitCost / item.packSize)}/unit
                           </span>
                         )}
                       </div>

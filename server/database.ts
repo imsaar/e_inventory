@@ -48,7 +48,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 13;
+const CURRENT_SCHEMA_VERSION = 15;
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -714,6 +714,84 @@ function runMigrations() {
       console.log('Migration to version 13 completed successfully');
     } catch (error: any) {
       console.error('Migration to version 13 failed:', error);
+      throw error;
+    }
+  }
+
+  // Migration to version 14: Add pack_size to order_items so a line-item
+  // quantity of 1 can still track that the component arrived as a pack
+  // of N (e.g. "10 PCS Jumper Wire" at qty=1 → 10 units of inventory).
+  // Component quantity on insert uses quantity × pack_size.
+  if (currentVersion < 14) {
+    console.log('Running migration to version 14: Adding pack_size to order_items');
+    try {
+      const cols = (db.prepare('PRAGMA table_info(order_items)').all() as any[]).map((c: any) => c.name);
+      if (!cols.includes('pack_size')) {
+        db.exec('ALTER TABLE order_items ADD COLUMN pack_size INTEGER DEFAULT 1');
+        console.log('  added order_items.pack_size');
+      }
+      db.exec('INSERT INTO schema_version (version) VALUES (14)');
+      console.log('Migration to version 14 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 14 failed:', error);
+      throw error;
+    }
+  }
+
+  // Migration to version 15: Widen orders.status CHECK to include 'returned'.
+  // SQLite can't alter CHECK constraints in place, so we rebuild the table.
+  // The rebuild is idempotent: we only run it when the current CHECK doesn't
+  // already contain 'returned'.
+  if (currentVersion < 15) {
+    console.log('Running migration to version 15: Add returned status to orders');
+    try {
+      const existingSql = (db.prepare("SELECT sql FROM sqlite_master WHERE name='orders'").get() as { sql?: string })?.sql || '';
+      if (!existingSql.includes("'returned'")) {
+        // Capture existing column list so the copy is column-correct even if
+        // earlier migrations added ad-hoc columns we've forgotten about.
+        const cols = (db.prepare('PRAGMA table_info(orders)').all() as any[]).map((c: any) => c.name);
+        const colList = cols.join(', ');
+        db.exec('PRAGMA foreign_keys = OFF');
+        db.exec('BEGIN TRANSACTION');
+        try {
+          db.exec(`
+            CREATE TABLE orders_new (
+              id TEXT PRIMARY KEY,
+              order_date TEXT NOT NULL,
+              supplier TEXT,
+              order_number TEXT,
+              supplier_order_id TEXT,
+              notes TEXT,
+              total_amount REAL,
+              import_source TEXT,
+              import_date TEXT,
+              original_data TEXT,
+              status TEXT CHECK(status IN ('pending', 'ordered', 'shipped', 'delivered', 'cancelled', 'returned')) DEFAULT 'delivered',
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+              tax REAL DEFAULT 0
+            )
+          `);
+          db.exec(`INSERT INTO orders_new (${colList}) SELECT ${colList} FROM orders`);
+          db.exec('DROP TABLE orders');
+          db.exec('ALTER TABLE orders_new RENAME TO orders');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_orders_supplier ON orders(supplier)');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date)');
+          db.exec('COMMIT');
+        } catch (innerErr) {
+          db.exec('ROLLBACK');
+          throw innerErr;
+        } finally {
+          db.exec('PRAGMA foreign_keys = ON');
+        }
+        console.log('  rebuilt orders table with widened status CHECK');
+      } else {
+        console.log('  orders.status CHECK already includes returned');
+      }
+      db.exec('INSERT INTO schema_version (version) VALUES (15)');
+      console.log('Migration to version 15 completed successfully');
+    } catch (error: any) {
+      console.error('Migration to version 15 failed:', error);
       throw error;
     }
   }

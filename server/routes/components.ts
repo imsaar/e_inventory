@@ -7,21 +7,39 @@ import { generateComponentQRCodeHTML, generateMixedSizeComponentQRCodeHTML } fro
 
 const router = express.Router();
 
-// Helper function to get calculated costs for components from orders
+// Helper function to get calculated costs for components from orders.
+//
+// Quantity values multiply by order_items.pack_size (COALESCE to 1 for legacy
+// rows) so a qty-1 order of "10 PCS Jumper Wire" contributes 10 physical
+// units of inventory, not 1.
+//
+// Cancelled and returned orders are excluded outright — cancelled never
+// delivered and returned was refunded, neither counts toward stock or value.
+//
+// Cost values:
+//   total_value   = SUM(oi.total_cost) for delivered  (listing-level cost)
+//   available_qty = SUM(oi.quantity × pack_size) for delivered  (physical units)
+//   average_unit_cost = total_value / available_qty  (per physical unit,
+//   weighted by pack contribution — matches the "pack of N, $X/unit"
+//   surface in the order detail view).
 const getComponentCalculatedCosts = (componentIds: string[]) => {
   if (componentIds.length === 0) return new Map();
 
   const placeholders = componentIds.map(() => '?').join(',');
   const costs = db.prepare(`
-    SELECT 
+    SELECT
       oi.component_id,
       COUNT(DISTINCT o.id) as order_count,
-      SUM(CASE WHEN o.status = 'delivered' THEN oi.quantity ELSE 0 END) as available_quantity,
-      SUM(CASE WHEN o.status IN ('pending', 'ordered', 'shipped') THEN oi.quantity ELSE 0 END) as pending_quantity,
-      SUM(oi.quantity) as total_quantity,
-      AVG(CASE WHEN o.status = 'delivered' THEN oi.unit_cost ELSE NULL END) as average_unit_cost,
+      SUM(CASE WHEN o.status = 'delivered' THEN oi.quantity * COALESCE(oi.pack_size, 1) ELSE 0 END) as available_quantity,
+      SUM(CASE WHEN o.status IN ('pending', 'ordered', 'shipped') THEN oi.quantity * COALESCE(oi.pack_size, 1) ELSE 0 END) as pending_quantity,
+      SUM(CASE WHEN o.status NOT IN ('cancelled', 'returned') THEN oi.quantity * COALESCE(oi.pack_size, 1) ELSE 0 END) as total_quantity,
       SUM(CASE WHEN o.status = 'delivered' THEN oi.total_cost ELSE 0 END) as total_value,
-      MAX(CASE WHEN o.status = 'delivered' THEN o.order_date ELSE NULL END) as last_order_date
+      -- Pre-discount list total for delivered orders. Uses list_unit_cost
+      -- (preserved at import time) when present, else unit_cost — so
+      -- orders imported before list_unit_cost existed still contribute.
+      SUM(CASE WHEN o.status = 'delivered' THEN oi.quantity * COALESCE(oi.list_unit_cost, oi.unit_cost) ELSE 0 END) as total_list_value,
+      MAX(CASE WHEN o.status = 'delivered' THEN o.order_date ELSE NULL END) as last_order_date,
+      MAX(CASE WHEN o.status NOT IN ('cancelled', 'returned') THEN o.order_date ELSE NULL END) as last_acquired_at
     FROM order_items oi
     JOIN orders o ON oi.order_id = o.id
     WHERE oi.component_id IN (${placeholders})
@@ -30,14 +48,29 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
 
   const costsMap = new Map();
   for (const cost of costs) {
+    const availableQty = cost.available_quantity || 0;
+    const totalValue = cost.total_value || 0;
+    const totalListValue = cost.total_list_value || 0;
+    const averageUnitCost = availableQty > 0 ? totalValue / availableQty : undefined;
+    const averageListUnitCost = availableQty > 0 && totalListValue > 0
+      ? totalListValue / availableQty
+      : undefined;
     costsMap.set(cost.component_id, {
       orderCount: cost.order_count,
-      availableQuantity: cost.available_quantity || 0,
+      availableQuantity: availableQty,
       pendingQuantity: cost.pending_quantity > 0 ? cost.pending_quantity : undefined,
       totalQuantity: cost.total_quantity || 0,
-      averageUnitCost: cost.average_unit_cost,
-      totalValue: cost.total_value,
-      lastOrderDate: cost.last_order_date
+      averageUnitCost,
+      // Pre-discount per-physical-unit cost. undefined when we have no
+      // list-price data (all rows import-only, no discount ever recorded),
+      // or when it equals the paid cost (nothing to display differently).
+      averageListUnitCost: averageListUnitCost && averageListUnitCost > (averageUnitCost || 0) + 0.0001
+        ? averageListUnitCost
+        : undefined,
+      totalValue,
+      totalListValue: totalListValue > totalValue + 0.01 ? totalListValue : undefined,
+      lastOrderDate: cost.last_order_date,
+      lastAcquiredAt: cost.last_acquired_at,
     });
   }
   return costsMap;
@@ -45,19 +78,26 @@ const getComponentCalculatedCosts = (componentIds: string[]) => {
 
 // Helper function to convert database row to API format with calculated costs
 const mapComponentRow = (row: any, calculatedCosts?: any): Component => {
-  const availableQuantity = calculatedCosts?.availableQuantity || 0;
+  const storedQuantity = Number(row.quantity) || 0;
   const pendingQuantity = calculatedCosts?.pendingQuantity || 0;
-  
-  // Automatically set status based on availability
+
+  // Automatically set status based on availability.
   let status = row.status;
-  if (availableQuantity > 0) {
+  if (storedQuantity > 0) {
     status = 'available';
   } else if (pendingQuantity > 0) {
-    status = 'on_order'; // Component is on order but not yet delivered
+    status = 'on_order';
   } else {
-    status = 'needs_testing'; // Component needs to be ordered
+    status = 'needs_testing';
   }
-  
+
+  // Fall back to the calculated per-physical-unit cost from delivered orders
+  // when the row has no stored unit_cost (imports write to components.quantity
+  // directly, but unit_cost on legacy rows is often null).
+  const storedUnitCost = Number.isFinite(Number(row.unit_cost)) && Number(row.unit_cost) > 0
+    ? Number(row.unit_cost)
+    : undefined;
+
   return {
     ...row,
     // Map database field names to camelCase API field names
@@ -65,18 +105,29 @@ const mapComponentRow = (row: any, calculatedCosts?: any): Component => {
     packageType: row.package_type,
     pinCount: row.pin_count,
     minThreshold: row.min_threshold,
-    // Use calculated quantities from orders only (ignore base inventory quantity)
-    unitCost: calculatedCosts?.averageUnitCost || undefined,
-    totalCost: calculatedCosts?.totalValue || undefined,
-    // Quantities based purely on orders
-    totalQuantity: calculatedCosts?.totalQuantity || 0, // Sum of all ordered quantities
-    onOrderQuantity: calculatedCosts?.pendingQuantity > 0 ? calculatedCosts?.pendingQuantity : undefined, // Pending/shipped orders
-    quantity: availableQuantity, // Delivered orders only
-    status, // Automatically calculated status
+    // Prefer the user-editable stored values; orders are the default but
+    // manual edits via the component form always win (they overwrite
+    // components.quantity / components.unit_cost directly).
+    unitCost: storedUnitCost ?? calculatedCosts?.averageUnitCost,
+    listUnitCost: calculatedCosts?.averageListUnitCost,
+    totalCost: Number.isFinite(Number(row.total_cost)) && Number(row.total_cost) > 0
+      ? Number(row.total_cost)
+      : calculatedCosts?.totalValue,
+    listTotalCost: calculatedCosts?.totalListValue,
+    // On-order counter is derived from live order statuses; it's informational
+    // only and never replaces stored quantity.
+    totalQuantity: calculatedCosts?.totalQuantity || 0,
+    onOrderQuantity: calculatedCosts?.pendingQuantity > 0 ? calculatedCosts?.pendingQuantity : undefined,
+    quantity: storedQuantity,
+    status,
     locationId: row.location_id,
     datasheetUrl: row.datasheet_url,
     imageUrl: row.image_url,
-    purchaseDate: calculatedCosts?.lastOrderDate || row.purchase_date,
+    // Prefer the most recent active-order date (pending / ordered / shipped /
+    // delivered) so the UI can sort "most recently acquired" even when the
+    // items haven't been marked delivered yet. Falls back to delivered-only
+    // date and then the legacy stored column.
+    purchaseDate: calculatedCosts?.lastAcquiredAt || calculatedCosts?.lastOrderDate || row.purchase_date,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     qrCode: row.qr_code,
@@ -189,23 +240,46 @@ router.get('/', validateQuery(schemas.search), (req, res) => {
     }
 
     // Sorting
-    const sortBy = req.query.sortBy || 'name';
+    const explicitSortBy = (req.query.sortBy as string | undefined);
+    const sortBy = explicitSortBy || 'name';
     const sortOrder = req.query.sortOrder || 'asc';
     const columnPrefix = sortBy === 'location_name' ? 'sl' : 'c';
     sql += ` ORDER BY ${columnPrefix}.${sortBy === 'location_name' ? 'name' : sortBy} ${(sortOrder as string).toUpperCase()}`;
 
     const stmt = db.prepare(sql);
     const rows = stmt.all(...params) as any[];
-    
+
     // Get calculated costs for all components
     const componentIds = rows.map(row => row.id);
     const calculatedCosts = getComponentCalculatedCosts(componentIds);
-    
+
     // Parse JSON fields and map database field names to API field names with calculated costs
     const components = rows.map((row: any) => {
       const costs = calculatedCosts.get(row.id);
       return mapComponentRow(row, costs);
     });
+
+    // Default ordering: most-recently-acquired first. "Acquired" = the
+    // latest order_date among this component's active (non-cancelled /
+    // non-returned) orders. Falls back to component.createdAt for rows
+    // with no qualifying orders. Only applied when the caller didn't
+    // request an explicit sortBy — preserves any user-picked sort.
+    if (!explicitSortBy) {
+      const acquiredAt = (c: any, row: any) => {
+        const costs = calculatedCosts.get(row.id);
+        const raw = costs?.lastAcquiredAt || c.purchaseDate || c.createdAt;
+        const t = raw ? new Date(raw).getTime() : 0;
+        return Number.isFinite(t) ? t : 0;
+      };
+      const withAcquired = components.map((c, i) => ({ c, t: acquiredAt(c, rows[i]) }));
+      withAcquired.sort((a, b) => {
+        const diff = b.t - a.t;
+        if (diff !== 0) return diff;
+        return String(a.c.name || '').localeCompare(String(b.c.name || ''));
+      });
+      components.length = 0;
+      components.push(...withAcquired.map(x => x.c));
+    }
 
     res.json(components);
   } catch (error) {
