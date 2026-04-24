@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Save, MapPin, Trash2 } from 'lucide-react';
 import { StorageLocation } from '../types';
 import { TagInput } from './TagInput';
 import { PhotoUpload } from './PhotoUpload';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useSaveShortcut } from '../hooks/useSaveShortcut';
 
 interface LocationFormProps {
   location?: StorageLocation | null;
@@ -21,6 +23,10 @@ const LOCATION_TYPES = [
 ];
 
 export function LocationForm({ location, onSave, onCancel, onDelete }: LocationFormProps) {
+  useEscapeKey(onCancel);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  useSaveShortcut(() => formRef.current?.requestSubmit());
+
   const [formData, setFormData] = useState({
     name: '',
     type: 'room' as StorageLocation['type'],
@@ -145,7 +151,7 @@ export function LocationForm({ location, onSave, onCancel, onDelete }: LocationF
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="component-form">
+        <form ref={formRef} onSubmit={handleSubmit} className="component-form">
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Name *</label>

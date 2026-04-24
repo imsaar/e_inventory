@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Upload, FileText, Package, DollarSign, Calendar, CheckCircle, AlertCircle, Eye, Settings } from 'lucide-react';
 import { useDashboardRefresh } from '../hooks/useDashboardRefresh';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ParsedOrder {
   orderNumber: string;
@@ -47,6 +48,8 @@ interface AliExpressImportProps {
 }
 
 export function AliExpressImport({ onImportComplete, onClose }: AliExpressImportProps) {
+  useEscapeKey(onClose);
+
   // const { pauseRefresh, resumeRefresh } = useDashboardRefresh();
   
   // Resume refresh when component unmounts (e.g., dialog closed)

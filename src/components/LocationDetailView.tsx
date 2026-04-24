@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Edit, Trash2, MapPin, Package, Calendar, Tag, QrCode, Clipboard, Image as ImageIcon, Eye, Archive, Home, Building, FolderOpen, Box, Layers } from 'lucide-react';
 import { StorageLocation, Component } from '../types';
 import { LinkifiedText } from '../utils/linkify';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface LocationDetailViewProps {
   locationId: string;
@@ -11,6 +12,8 @@ interface LocationDetailViewProps {
 }
 
 export function LocationDetailView({ locationId, onClose, onEdit, onDelete }: LocationDetailViewProps) {
+  useEscapeKey(onClose);
+
   const [location, setLocation] = useState<StorageLocation | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
   const [children, setChildren] = useState<StorageLocation[]>([]);

@@ -93,7 +93,7 @@ export const schemas = {
     maxQuantity: z.number().int().min(0).max(1000000).optional(),
     tags: z.array(z.string().max(50, 'Tag too long')).max(10, 'Too many tags').optional(),
     partNumber: z.string().max(100, 'Part number too long').optional(),
-    sortBy: z.enum(['name', 'category', 'quantity', 'updated_at', 'created_at']).optional(),
+    sortBy: z.enum(['acquiredAt', 'name', 'category', 'quantity', 'unit_cost', 'updated_at', 'created_at', 'location_name']).optional(),
     sortOrder: z.enum(['asc', 'desc']).optional()
   }),
 

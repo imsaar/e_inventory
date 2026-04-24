@@ -14,6 +14,13 @@ interface ComponentCardProps {
 }
 
 export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDetails, bulkMode = false, isSelected = false, onToggleSelection }: ComponentCardProps) {
+  // Double-click anywhere on a card (outside buttons / links / inputs)
+  // opens the detail view. No-op if the page didn't provide a handler.
+  const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button, a, input, label, [role="button"]')) return;
+    if (onViewDetails) onViewDetails();
+  };
   const getQuantityClass = (quantity: number, minThreshold: number) => {
     if (quantity === 0) return 'out';
     if (quantity <= minThreshold) return 'low';
@@ -26,7 +33,10 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
 
   if (viewMode === 'list') {
     return (
-      <div className={`component-list-item ${isSelected ? 'selected' : ''}`}>
+      <div
+        className={`component-list-item ${isSelected ? 'selected' : ''}`}
+        onDoubleClick={handleDoubleClick}
+      >
         <div className="list-content">
           {bulkMode && (
             <div className="selection-checkbox">
@@ -114,7 +124,10 @@ export function ComponentCard({ component, viewMode, onEdit, onDelete, onViewDet
   }
 
   return (
-    <div className={`component-card ${isSelected ? 'selected' : ''}`}>
+    <div
+      className={`component-card ${isSelected ? 'selected' : ''}`}
+      onDoubleClick={handleDoubleClick}
+    >
       <div className="component-header">
         {bulkMode && (
           <div className="selection-checkbox">

@@ -239,12 +239,42 @@ router.get('/', validateQuery(schemas.search), (req, res) => {
       params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
     }
 
-    // Sorting
+    // Sorting. acquiredAt is a VIRTUAL key (computed from order history)
+    // handled by a post-query JS sort below. All other values map to real
+    // columns via a whitelist — never interpolate raw user input into SQL.
     const explicitSortBy = (req.query.sortBy as string | undefined);
-    const sortBy = explicitSortBy || 'name';
-    const sortOrder = req.query.sortOrder || 'asc';
-    const columnPrefix = sortBy === 'location_name' ? 'sl' : 'c';
-    sql += ` ORDER BY ${columnPrefix}.${sortBy === 'location_name' ? 'name' : sortBy} ${(sortOrder as string).toUpperCase()}`;
+    const sortColumnWhitelist: Record<string, string> = {
+      name: 'c.name',
+      category: 'c.category',
+      quantity: 'c.quantity',
+      unit_cost: 'c.unit_cost',
+      updated_at: 'c.updated_at',
+      created_at: 'c.created_at',
+      location_name: 'sl.name',
+    };
+    const useVirtualAcquiredSort = !explicitSortBy || explicitSortBy === 'acquiredAt';
+
+    // Default sort direction depends on sortBy: date-like keys default to
+    // DESC (most recent first), textual keys default to ASC (A→Z). An
+    // explicit sortOrder parameter always wins.
+    const rawSortOrder = (req.query.sortOrder as string | undefined)?.toLowerCase();
+    const dateLikeSorts = new Set(['acquiredAt', 'updated_at', 'created_at']);
+    const defaultDesc = useVirtualAcquiredSort || (explicitSortBy && dateLikeSorts.has(explicitSortBy));
+    const sortOrderSql =
+      rawSortOrder === 'desc' ? 'DESC' :
+      rawSortOrder === 'asc' ? 'ASC' :
+      defaultDesc ? 'DESC' : 'ASC';
+
+    if (useVirtualAcquiredSort) {
+      // SQL side just needs a stable fallback; JS post-sort does the real work.
+      sql += ` ORDER BY c.created_at DESC`;
+    } else {
+      const col = sortColumnWhitelist[explicitSortBy!];
+      if (!col) {
+        return res.status(400).json({ error: `Unsupported sortBy: ${explicitSortBy}` });
+      }
+      sql += ` ORDER BY ${col} ${sortOrderSql}`;
+    }
 
     const stmt = db.prepare(sql);
     const rows = stmt.all(...params) as any[];
@@ -259,12 +289,12 @@ router.get('/', validateQuery(schemas.search), (req, res) => {
       return mapComponentRow(row, costs);
     });
 
-    // Default ordering: most-recently-acquired first. "Acquired" = the
-    // latest order_date among this component's active (non-cancelled /
-    // non-returned) orders. Falls back to component.createdAt for rows
-    // with no qualifying orders. Only applied when the caller didn't
-    // request an explicit sortBy — preserves any user-picked sort.
-    if (!explicitSortBy) {
+    // Virtual "acquiredAt" sort: latest order_date among active
+    // (non-cancelled / non-returned) orders for each component, falling
+    // back to component.createdAt. Runs as a JS post-sort because SQL-side
+    // joins get messy with the existing getComponentCalculatedCosts pass.
+    // Honors sortOrder (default DESC = most recent first).
+    if (useVirtualAcquiredSort) {
       const acquiredAt = (c: any, row: any) => {
         const costs = calculatedCosts.get(row.id);
         const raw = costs?.lastAcquiredAt || c.purchaseDate || c.createdAt;
@@ -272,8 +302,9 @@ router.get('/', validateQuery(schemas.search), (req, res) => {
         return Number.isFinite(t) ? t : 0;
       };
       const withAcquired = components.map((c, i) => ({ c, t: acquiredAt(c, rows[i]) }));
+      const direction = sortOrderSql === 'ASC' ? 1 : -1;
       withAcquired.sort((a, b) => {
-        const diff = b.t - a.t;
+        const diff = (a.t - b.t) * direction;
         if (diff !== 0) return diff;
         return String(a.c.name || '').localeCompare(String(b.c.name || ''));
       });

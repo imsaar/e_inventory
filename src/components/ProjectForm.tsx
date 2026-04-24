@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Save, Folder, Trash2 } from 'lucide-react';
 import { Project } from '../types';
 import { LinkifiedText } from '../utils/linkify';
 import { TagInput } from './TagInput';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useSaveShortcut } from '../hooks/useSaveShortcut';
 
 interface ProjectFormProps {
   project?: Project | null;
@@ -19,6 +21,10 @@ const PROJECT_STATUSES = [
 ];
 
 export function ProjectForm({ project, onSave, onCancel, onDelete }: ProjectFormProps) {
+  useEscapeKey(onCancel);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  useSaveShortcut(() => formRef.current?.requestSubmit());
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -105,7 +111,7 @@ export function ProjectForm({ project, onSave, onCancel, onDelete }: ProjectForm
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="component-form">
+        <form ref={formRef} onSubmit={handleSubmit} className="component-form">
           <div className="form-group">
             <label className="form-label">Project Name *</label>
             <input

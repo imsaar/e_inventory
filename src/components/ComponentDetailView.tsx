@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Edit, Trash2, Package, Calendar, Tag, MapPin, DollarSign, Clipboard, ExternalLink, Zap, Cpu, Info, ShoppingCart, ExternalLink as LinkIcon } from 'lucide-react';
 import { Component, StorageLocation, ComponentOrder } from '../types';
 import { LinkifiedText } from '../utils/linkify';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ComponentDetailViewProps {
   componentId: string;
@@ -11,6 +12,8 @@ interface ComponentDetailViewProps {
 }
 
 export function ComponentDetailView({ componentId, onClose, onEdit, onDelete }: ComponentDetailViewProps) {
+  useEscapeKey(onClose);
+
   const [component, setComponent] = useState<Component | null>(null);
   const [location, setLocation] = useState<StorageLocation | null>(null);
   const [orders, setOrders] = useState<ComponentOrder[]>([]);

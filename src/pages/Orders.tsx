@@ -45,6 +45,17 @@ export function Orders() {
     searchOrders();
   }, []);
 
+  // Deep-link: open the detail view when the URL carries ?orderId=... .
+  // Used when clicking an order number from ComponentDetailView etc.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linkedOrderId = params.get('orderId');
+    if (linkedOrderId) {
+      setDetailOrderId(linkedOrderId);
+      setShowDetailView(true);
+    }
+  }, []);
+
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       searchOrders();
@@ -389,7 +400,18 @@ export function Orders() {
         ) : (
           <div className={`orders-container ${viewMode}`}>
             {orders.map(order => (
-              <div key={order.id} className={`order-card ${viewMode === 'list' ? 'order-list-item' : ''} ${selectedOrders.has(order.id) ? 'selected' : ''}`}>
+              <div
+                key={order.id}
+                className={`order-card ${viewMode === 'list' ? 'order-list-item' : ''} ${selectedOrders.has(order.id) ? 'selected' : ''}`}
+                onDoubleClick={(e) => {
+                  // Double-click opens the detail view. Ignore if the user
+                  // is double-clicking inside an interactive control so
+                  // buttons / checkboxes / links keep their own behaviour.
+                  const target = e.target as HTMLElement;
+                  if (target.closest('button, a, input, label, [role="button"]')) return;
+                  handleViewDetails(order.id);
+                }}
+              >
                 <div className="order-checkbox">
                   <label className="checkbox-container">
                     <input

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, Trash2, AlertTriangle } from 'lucide-react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface BulkDeleteDialogProps {
   items: string[]; // Array of IDs to delete
@@ -9,6 +10,8 @@ interface BulkDeleteDialogProps {
 }
 
 export function BulkDeleteDialog({ items, itemType, onCancel, onConfirm }: BulkDeleteDialogProps) {
+  useEscapeKey(onCancel);
+
   const [loading, setLoading] = useState(false);
 
   const getApiEndpoint = () => {

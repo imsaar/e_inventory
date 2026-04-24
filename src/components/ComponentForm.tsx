@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Save, Trash2 } from 'lucide-react';
 import { Component, StorageLocation } from '../types';
 import { TagInput } from './TagInput';
 import { PhotoUpload } from './PhotoUpload';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useSaveShortcut } from '../hooks/useSaveShortcut';
 
 interface ComponentFormProps {
   component?: Component | null;
@@ -41,6 +43,10 @@ const SUBCATEGORIES: Record<string, string[]> = {
 // const PROTOCOLS = ['I2C', 'SPI', 'UART', 'PWM', 'Analog', 'Digital', 'CAN', 'Ethernet', 'WiFi', 'Bluetooth'];
 
 export function ComponentForm({ component, onSave, onCancel, onDelete }: ComponentFormProps) {
+  useEscapeKey(onCancel);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  useSaveShortcut(() => formRef.current?.requestSubmit());
+
   const [formData, setFormData] = useState({
     name: '',
     partNumber: '',
@@ -205,7 +211,7 @@ export function ComponentForm({ component, onSave, onCancel, onDelete }: Compone
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="component-form">
+        <form ref={formRef} onSubmit={handleSubmit} className="component-form">
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Name *</label>

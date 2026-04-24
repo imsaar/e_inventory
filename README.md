@@ -64,7 +64,9 @@ A comprehensive web-based inventory management system designed specifically for 
 
 ↩️ **Returned order status** - New `returned` status alongside `cancelled`. Both exclude the order from Dashboard spend totals (all-time / 7d / 30d / 12mo) and from the Orders page Total chip. Transitioning into or out of `returned`/`cancelled` via the order edit form rebalances the linked components' quantity by `± quantity × pack_size`.
 
-🛒 **Components page sorted by most-recently-acquired** - `GET /api/components` default ordering is now most recent active order date first (falling back to component `createdAt`), so the components you just ordered float to the top. Explicit `sortBy` still wins.
+🛒 **Components page sorted by most-recently-acquired** - `GET /api/components` default ordering is now most recent active order date first (falling back to component `createdAt`), so the components you just ordered float to the top. The search filter panel offers "Most Recently Acquired" (default), Unit Cost, and the previous options (Name, Category, Quantity, Last Updated, Created Date, Location) with direction-aware defaults — date-like sorts start DESC, textual start ASC.
+
+⌨️ **Keyboard shortcuts and gestures** - **Esc** dismisses any open modal (Order/Component/Location/Project forms, detail views, bulk-delete dialog, AliExpress importer). **Cmd+S / Ctrl+S** saves the current edit form (fires the same `handleSubmit` the Save button uses, respects native form validation). **Double-click** on an order card or component card opens that record's detail view. Clicking through an order number from a component's detail view deep-links to `/orders?orderId=…` which auto-opens that order's detail modal.
 
 🔓 **Authentication Removal (September 2025)** - Streamlined system for development and testing by removing authentication requirements from all endpoints. All API routes are now publicly accessible while maintaining core security features like rate limiting and input validation.
 

@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Search, Package, ExternalLink, RefreshCw, Upload } from 'lucide-react';
 import { Component, Order } from '../types';
 import { resolveOrderItemImage } from '../utils/orderItemImage';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useSaveShortcut } from '../hooks/useSaveShortcut';
 
 const PLACEHOLDER_TITLE_PATTERN = /^AliExpress item \d+/i;
 
@@ -28,6 +30,10 @@ interface OrderFormProps {
 }
 
 export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
+  useEscapeKey(onCancel);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  useSaveShortcut(() => formRef.current?.requestSubmit());
+
   const [formData, setFormData] = useState({
     orderDate: new Date().toISOString().split('T')[0],
     supplier: '',
@@ -399,7 +405,7 @@ export function OrderForm({ order, onSave, onCancel }: OrderFormProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <form ref={formRef} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
             {!order && (
               <div className="import-from-detail-banner">

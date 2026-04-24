@@ -167,7 +167,13 @@ The OrderForm's Edit-mode "Import detail page" button auto-picks between the Ali
 
 **Returned status + spend totals**: Excluded from Dashboard spend totals and Orders page Total chip alongside `cancelled`. Transitioning an order into `returned` or `cancelled` via `PUT /api/orders/:id` subtracts `quantity × pack_size` from linked components' stock; transitioning out adds it back. Pending Orders count excludes both states as well.
 
-**Components sort default**: `GET /api/components` re-sorts in JS to "most recently acquired first" when no `sortBy` is specified. Acquired-at key = `MAX(o.order_date) WHERE status NOT IN ('cancelled', 'returned')`, falling back to `component.createdAt`. Explicit `sortBy` preserves behaviour.
+**Components sort default**: `GET /api/components` re-sorts in JS to "most recently acquired first" when no `sortBy` is specified OR when `sortBy=acquiredAt` explicitly. Acquired-at key = `MAX(o.order_date) WHERE status NOT IN ('cancelled', 'returned')`, falling back to `component.createdAt`. The valid `sortBy` values are `acquiredAt / name / category / quantity / unit_cost / updated_at / created_at / location_name`; all non-virtual values map to real columns via a whitelist (never raw interpolation). Default sort *direction* depends on the key — date-like sorts (`acquiredAt`, `updated_at`, `created_at`) default to DESC, others to ASC.
+
+**Keyboard + gesture shortcuts** (`src/hooks/useEscapeKey.ts`, `src/hooks/useSaveShortcut.ts`):
+- `useEscapeKey(onClose)` — window-level Escape listener. Wired into every modal component (OrderForm, OrderDetailView, ComponentForm, ComponentDetailView, LocationForm, LocationDetailView, ProjectForm, AliExpressImport, BulkDeleteDialog) so Escape always dismisses the topmost dialog.
+- `useSaveShortcut(() => formRef.current?.requestSubmit())` — Cmd+S (Mac) / Ctrl+S (Win/Linux). Prevents the browser "save page" default and fires the native form submit via `requestSubmit()` so the existing `handleSubmit` + validation runs unchanged. Wired into every form (OrderForm, ComponentForm, LocationForm, ProjectForm).
+- Double-click on `.order-card` or `.component-card` / `.component-list-item` opens the detail view. Clicks inside interactive elements (`button, a, input, label, [role="button"]`) are ignored so existing controls keep their behaviour.
+- Deep-link: `/orders?orderId=<id>` auto-opens the detail modal for that order on mount. ComponentDetailView's order-number links use this; new in this revision of Orders.tsx.
 
 **Component form editability**: `components.quantity` and `components.unit_cost` are directly user-editable via the form. Imports seed them (qty × pack_size on insert; status-transition PUT adjusts them). The mapper returns `row.quantity` / `row.unit_cost` as the primary values and only uses the aggregation as a fallback when no stored value exists. `onOrderQuantity` is live-derived from pending/shipped orders (never replaces stored quantity).
 

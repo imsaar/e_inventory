@@ -233,13 +233,15 @@ export function AdvancedSearch({
               <div className="filter-group">
                 <label className="filter-label">Sort By</label>
                 <select
-                  value={filters.sortBy || 'name'}
+                  value={filters.sortBy || 'acquiredAt'}
                   onChange={(e) => handleFilterChange('sortBy', e.target.value)}
                   className="filter-select"
                 >
+                  <option value="acquiredAt">Most Recently Acquired</option>
                   <option value="name">Name</option>
                   <option value="category">Category</option>
                   <option value="quantity">Quantity</option>
+                  <option value="unit_cost">Unit Cost</option>
                   <option value="updated_at">Last Updated</option>
                   <option value="created_at">Created Date</option>
                   <option value="location_name">Location</option>

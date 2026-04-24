@@ -135,7 +135,7 @@ export interface SearchFilters {
   minQuantity?: number;
   maxQuantity?: number;
   hasDatasheet?: boolean;
-  sortBy?: 'name' | 'category' | 'quantity' | 'updated_at' | 'created_at' | 'location_name';
+  sortBy?: 'acquiredAt' | 'name' | 'category' | 'quantity' | 'unit_cost' | 'updated_at' | 'created_at' | 'location_name';
   sortOrder?: 'asc' | 'desc';
 }
 

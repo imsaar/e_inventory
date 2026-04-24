@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { X, Package, Calendar, DollarSign, User, FileText, Hash, Edit, Trash2 } from 'lucide-react';
 import { Order } from '../types';
 import { resolveOrderItemImage } from '../utils/orderItemImage';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface OrderItem {
   id: string;
@@ -35,6 +36,8 @@ interface OrderDetailViewProps {
 }
 
 export function OrderDetailView({ orderId, onClose, onEdit, onDelete }: OrderDetailViewProps) {
+  useEscapeKey(onClose);
+
   const [order, setOrder] = useState<OrderWithItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
