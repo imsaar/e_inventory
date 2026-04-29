@@ -92,6 +92,43 @@ A comprehensive web-based inventory management system designed specifically for 
 
 🗄️ **Database Evolution** - Advanced migration system (v1→v6) with proper schema versioning, field additions, and backward compatibility. Automatic upgrades without data loss.
 
+## Prerequisites
+
+- **Node.js 20.x** — pinned in [`.nvmrc`](./.nvmrc). Other versions are not tested; `better-sqlite3` ships prebuilt binaries for active Node releases, so off-version Node may force a from-source rebuild.
+- **SQLite 3.40+** — only needed for the direct CLI access shown below (`sqlite3 data/inventory.db`). The app itself embeds its own SQLite through `better-sqlite3`, so the application does not depend on a system install.
+
+### macOS
+
+```bash
+# Node.js 20 via nvm (recommended — auto-selects the version from .nvmrc)
+brew install nvm
+nvm install 20
+nvm use                # reads .nvmrc and switches to Node 20
+
+# SQLite CLI — only if `sqlite3 --version` is missing or older than 3.40
+brew install sqlite    # keg-only; invoke via $(brew --prefix sqlite)/bin/sqlite3
+```
+
+macOS Sonoma and newer ship a system `sqlite3` ≥ 3.43, so the Homebrew install is usually unnecessary.
+
+### Ubuntu / Debian
+
+```bash
+# Node.js 20 via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# SQLite CLI
+sudo apt-get install -y sqlite3
+```
+
+### Verify
+
+```bash
+node --version       # v20.x.x
+sqlite3 --version    # 3.40 or newer
+```
+
 ## Quick Start
 
 1. **Install dependencies**

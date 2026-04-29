@@ -754,6 +754,10 @@ function runMigrations() {
         db.exec('PRAGMA foreign_keys = OFF');
         db.exec('BEGIN TRANSACTION');
         try {
+          // orders_new must be a superset of every column the live orders
+          // table can have, since we copy by name from PRAGMA table_info.
+          // Mirror the canonical CREATE TABLE orders above + the tax column
+          // added by v13; only difference is the widened status CHECK.
           db.exec(`
             CREATE TABLE orders_new (
               id TEXT PRIMARY KEY,
@@ -761,8 +765,15 @@ function runMigrations() {
               supplier TEXT,
               order_number TEXT,
               supplier_order_id TEXT,
+              tracking_number TEXT,
+              shipping_method TEXT,
+              shipping_cost REAL,
+              tax_amount REAL,
+              discount_amount REAL,
               notes TEXT,
               total_amount REAL,
+              currency TEXT DEFAULT 'USD',
+              exchange_rate REAL DEFAULT 1.0,
               import_source TEXT,
               import_date TEXT,
               original_data TEXT,
