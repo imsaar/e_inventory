@@ -129,6 +129,22 @@ node --version       # v24.x.x
 sqlite3 --version    # 3.40 or newer
 ```
 
+### Upgrading an existing checkout
+
+If you already have the project cloned on Node 20 (or any earlier version), switching to Node 24 requires rebuilding the native bindings. `better-sqlite3` is compiled against the Node ABI it was installed under, so an existing `node_modules` will fail at startup with `NODE_MODULE_VERSION` mismatch (e.g. *"compiled against … 115. This version of Node.js requires … 137"*).
+
+```bash
+nvm install 24
+nvm use                          # picks up .nvmrc
+
+# Rebuild the native modules under the new Node:
+npm rebuild better-sqlite3       # fastest path
+
+# …or do a clean re-install if you also want to clear stale transitives:
+rm -rf node_modules package-lock.json
+npm install
+```
+
 ## Quick Start
 
 1. **Install dependencies**
