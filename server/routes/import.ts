@@ -254,6 +254,28 @@ router.post('/aliexpress/import', async (req, res) => {
               incomingStatus !== existingOrder.status &&
               shouldUpdateStatus(existingOrder.status, incomingStatus)
             ) {
+              // When the transition crosses the active↔inactive boundary
+              // (cancelled / returned), roll component stock the same way
+              // PUT /api/orders/:id does — without this, re-importing a
+              // freshly-cancelled order would leave its inventory contribution
+              // stuck on linked components.
+              const wasInactive = isInactiveOrderStatus(existingOrder.status);
+              const willBeInactive = isInactiveOrderStatus(incomingStatus);
+              if (wasInactive !== willBeInactive) {
+                const linkedItems = db.prepare(`
+                  SELECT component_id, quantity, pack_size
+                  FROM order_items
+                  WHERE order_id = ? AND component_id IS NOT NULL
+                `).all(existingOrder.id) as Array<{ component_id: string; quantity: number; pack_size: number | null }>;
+                const adjustStmt = db.prepare(
+                  "UPDATE components SET quantity = quantity + ?, updated_at = datetime('now') WHERE id = ?"
+                );
+                const sign = willBeInactive ? -1 : 1;
+                for (const li of linkedItems) {
+                  const units = sign * (Number(li.quantity) || 0) * (Number(li.pack_size) || 1);
+                  if (units !== 0) adjustStmt.run(units, li.component_id);
+                }
+              }
               db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(
                 incomingStatus,
                 new Date().toISOString(),
@@ -291,6 +313,7 @@ router.post('/aliexpress/import', async (req, res) => {
           );
 
           results.orderIds.push(orderId);
+          const orderStatusForStock = mapOrderStatus(orderData.status);
 
           // Process order items
           for (const item of orderData.items) {
@@ -302,7 +325,7 @@ router.post('/aliexpress/import', async (req, res) => {
 
               let componentId: string | null = null;
               if (item.parsedComponent && importOptions?.createComponents !== false) {
-                componentId = await createOrUpdateComponent(db, { ...item, packSize }, importOptions);
+                componentId = await createOrUpdateComponent(db, { ...item, packSize }, importOptions, orderStatusForStock);
                 if (componentId) {
                   results.componentIds.push(componentId);
                 }
@@ -439,11 +462,15 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
     const db = getDb(req);
 
     // Verify the order exists before doing any work.
-    const order = db.prepare('SELECT id, order_number FROM orders WHERE id = ?').get(orderId) as
-      { id: string; order_number: string | null } | undefined;
+    const order = db.prepare('SELECT id, order_number, status FROM orders WHERE id = ?').get(orderId) as
+      { id: string; order_number: string | null; status: string | null } | undefined;
     if (!order) {
       return res.status(404).json({ error: `Order ${orderId} not found` });
     }
+    // Cancelled / returned orders never contributed to stock — enrichment
+    // updates titles/qty/cost on the order_items but must not touch
+    // components.quantity. Gate every stock-adjusting branch below on this.
+    const orderInactive = isInactiveOrderStatus(order.status);
 
     // Parse the detail page.
     const fileBuffer = await fs.readFile(tempFilePath);
@@ -676,6 +703,9 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
         // units delta. When a row has no linked component (shouldn't
         // happen with the current importer but happens for pre-existing
         // rows), create one now and seed its quantity from newUnits.
+        // Cancelled/returned orders contribute zero to stock.
+        const seedUnits = orderInactive ? 0 : newUnits;
+        const adjustUnits = orderInactive ? 0 : unitsDelta;
         let componentId = row.component_id;
         if (!componentId) {
           componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -689,7 +719,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
             detail.productTitle,
             null,
             'Electronic Component',
-            newUnits,
+            seedUnits,
             0,
             detail.localImagePath || null,
             'available',
@@ -712,7 +742,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
           `).run(
             detail.productTitle,
             detail.localImagePath || null,
-            unitsDelta,
+            adjustUnits,
             now,
             componentId
           );
@@ -727,7 +757,7 @@ router.post('/aliexpress/enrich-order/:orderId', (req, res, next) => {
       for (const detail of leftoverAfterOrphans) {
         const effectiveUnitCost = Math.round(detail.unitPrice * discountFactor * 10000) / 10000;
         const packSize = parsePackSize(detail.productTitle, detail.variation);
-        const unitsInStock = (detail.quantity || 0) * packSize;
+        const unitsInStock = orderInactive ? 0 : (detail.quantity || 0) * packSize;
 
         const componentId = `cmp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         db.prepare(`
@@ -1560,22 +1590,22 @@ router.get('/history', (req, res) => {
 
 // Helper functions
 
-async function createOrUpdateComponent(db: any, item: any, options: any): Promise<string | null> {
+async function createOrUpdateComponent(db: any, item: any, options: any, orderStatus?: string): Promise<string | null> {
   if (!item.parsedComponent) {
     return null;
   }
 
   const component = item.parsedComponent;
-  
+
   // Check for existing component by title or part number
   let existingComponent = null;
-  
+
   if (component.partNumber) {
     existingComponent = db.prepare(`
       SELECT id FROM components WHERE part_number = ?
     `).get(component.partNumber);
   }
-  
+
   if (!existingComponent && options?.matchByTitle) {
     existingComponent = db.prepare(`
       SELECT id FROM components WHERE name = ?
@@ -1586,10 +1616,10 @@ async function createOrUpdateComponent(db: any, item: any, options: any): Promis
   const now = new Date().toISOString();
 
   // Inventory contribution for this line = order-line qty × pack size.
-  // pack_size is supplied by the caller (parsed from title) and defaults
-  // to 1 for legacy callers.
+  // Cancelled/returned orders contribute zero — they never landed in stock.
   const packSize = Number(item.packSize) || 1;
-  const unitsDelta = (Number(item.quantity) || 0) * packSize;
+  const isInactive = isInactiveOrderStatus(orderStatus);
+  const unitsDelta = isInactive ? 0 : (Number(item.quantity) || 0) * packSize;
 
   if (existingComponent) {
     // Update existing component with new information
@@ -1624,13 +1654,22 @@ async function createOrUpdateComponent(db: any, item: any, options: any): Promis
         now,
         now
       );
-      
+
       return componentId;
     } catch (error) {
       console.error('Error inserting component:', error);
       return null;
     }
   }
+}
+
+// Statuses where an order's items don't count toward physical stock on hand:
+// cancelled never delivered, returned was refunded. Mirrors the inventory
+// rules in server/routes/orders.ts (PUT) and server/routes/components.ts
+// (calculated cost helper).
+const INACTIVE_ORDER_STATUSES = new Set(['cancelled', 'returned']);
+function isInactiveOrderStatus(status: string | undefined | null): boolean {
+  return INACTIVE_ORDER_STATUSES.has((status || '').toLowerCase());
 }
 
 function mapOrderStatus(aliExpressStatus: string | undefined): string {

@@ -782,6 +782,82 @@ router.post('/check-dependencies', validateSchema(schemas.bulkDelete), (req, res
   }
 });
 
+// Recalculate components.quantity from active (non-cancelled, non-returned)
+// order lines. One-shot reconciliation for cleaning up historical drift —
+// e.g. inventory inflated by cancelled orders that were imported before the
+// import path learned to skip stock seeding for inactive statuses.
+//
+// DESTRUCTIVE OF MANUAL EDITS: a component whose stored quantity was hand-
+// adjusted (e.g. user marked 5 consumed by a project) gets overwritten to
+// match the order-line sum. The UI surfaces this via a confirmation dialog.
+//
+// Body / query params:
+//   dryRun=true  → compute the diff but don't write. Useful for preview.
+//
+// Response: { changed: N, components: [{ id, name, oldQuantity, newQuantity }], dryRun }
+router.post('/recalculate-quantities', (req, res) => {
+  try {
+    const dryRun = req.query.dryRun === 'true' || req.body?.dryRun === true;
+
+    // Sum qty × pack_size across non-cancelled, non-returned order lines,
+    // grouped by linked component. Components with no linked order_items
+    // don't appear in the result and are left alone (manual-only components).
+    const computed = db.prepare(`
+      SELECT
+        oi.component_id as id,
+        SUM(oi.quantity * COALESCE(oi.pack_size, 1)) as expected
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      WHERE oi.component_id IS NOT NULL
+        AND o.status NOT IN ('cancelled', 'returned')
+      GROUP BY oi.component_id
+    `).all() as Array<{ id: string; expected: number }>;
+
+    const expectedById = new Map<string, number>();
+    for (const r of computed) {
+      expectedById.set(r.id, Math.round(Number(r.expected) || 0));
+    }
+
+    // Pull every component with at least one linked order_item — including
+    // those whose order_items are ALL cancelled/returned (expected = 0).
+    // Without this, a component with a single cancelled order line would
+    // never be visited and its inflated stored quantity would stay stuck.
+    const linkedComponents = db.prepare(`
+      SELECT DISTINCT c.id, c.name, c.quantity
+      FROM components c
+      JOIN order_items oi ON oi.component_id = c.id
+    `).all() as Array<{ id: string; name: string; quantity: number | null }>;
+
+    const changes: Array<{ id: string; name: string; oldQuantity: number; newQuantity: number }> = [];
+    for (const c of linkedComponents) {
+      const oldQuantity = Number(c.quantity) || 0;
+      const newQuantity = expectedById.get(c.id) ?? 0;
+      if (oldQuantity !== newQuantity) {
+        changes.push({ id: c.id, name: c.name, oldQuantity, newQuantity });
+      }
+    }
+
+    if (!dryRun && changes.length > 0) {
+      const updateStmt = db.prepare(
+        "UPDATE components SET quantity = ?, updated_at = datetime('now') WHERE id = ?"
+      );
+      const tx = db.transaction(() => {
+        for (const ch of changes) updateStmt.run(ch.newQuantity, ch.id);
+      });
+      tx();
+    }
+
+    res.json({
+      dryRun,
+      changed: changes.length,
+      components: changes,
+    });
+  } catch (error) {
+    console.error('Error recalculating component quantities:', error);
+    res.status(500).json({ error: 'Failed to recalculate quantities' });
+  }
+});
+
 // Generate QR codes for components
 router.get('/qr-codes/pdf', (req, res) => {
   try {

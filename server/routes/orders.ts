@@ -271,6 +271,7 @@ router.post('/', validateSchema(orderSchema), (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
       `);
 
+      const orderStatus = orderData.status || 'delivered';
       orderStmt.run(
         orderId,
         orderData.orderDate,
@@ -278,35 +279,50 @@ router.post('/', validateSchema(orderSchema), (req, res) => {
         orderData.orderNumber,
         orderData.notes,
         orderData.totalAmount,
-        orderData.status || 'delivered'
+        orderStatus
       );
 
-      // Create order items and update component quantities
+      // Cancelled / returned orders never enter stock — same rule the import
+      // path enforces, the calculated-cost helper enforces, and PUT enforces
+      // on status transitions. Without this guard, creating a cancelled
+      // order via the manual form would inflate component quantities.
+      const inactiveStatusesSet = new Set(['cancelled', 'returned']);
+      const skipStockUpdate = inactiveStatusesSet.has(orderStatus);
+
+      // Create order items and update component quantities. product_title
+      // is NOT NULL on order_items — for manually-created orders, fall back
+      // to the linked component's name so the row is valid without forcing
+      // the form to collect a title.
       const itemStmt = db.prepare(`
-        INSERT INTO order_items (id, order_id, component_id, quantity, unit_cost, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO order_items (id, order_id, component_id, product_title, quantity, unit_cost, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
+      const componentNameStmt = db.prepare('SELECT name FROM components WHERE id = ?');
 
       const updateQuantityStmt = db.prepare(`
-        UPDATE components 
-        SET quantity = quantity + ?, 
+        UPDATE components
+        SET quantity = quantity + ?,
             updated_at = datetime('now')
         WHERE id = ?
       `);
 
       for (const item of items) {
+        const linked = componentNameStmt.get(item.componentId) as { name: string } | undefined;
+        const productTitle = linked?.name || 'Manual order item';
         // Create order item
         itemStmt.run(
           uuidv4(),
           orderId,
           item.componentId,
+          productTitle,
           item.quantity,
           item.unitCost,
           item.notes
         );
 
-        // Update component quantity (add to inventory)
-        updateQuantityStmt.run(item.quantity, item.componentId);
+        if (!skipStockUpdate) {
+          updateQuantityStmt.run(item.quantity, item.componentId);
+        }
       }
 
       // Fetch the created order with items
@@ -424,6 +440,14 @@ router.delete('/:id', (req, res) => {
     try {
       const { id } = req.params;
 
+      // Cancelled / returned orders never contributed to stock (POST and the
+      // import paths skip the increment for them, and PUT decrements on the
+      // active→inactive transition). So deleting such an order must NOT
+      // decrement again — that would silently shrink inventory.
+      const orderRow = db.prepare('SELECT status FROM orders WHERE id = ?').get(id) as
+        { status: string } | undefined;
+      const reverseStock = !orderRow || !['cancelled', 'returned'].includes(orderRow.status);
+
       // Get order items to reverse quantity changes
       const items = db.prepare(`
         SELECT component_id, quantity FROM order_items WHERE order_id = ?
@@ -431,14 +455,16 @@ router.delete('/:id', (req, res) => {
 
       // Reverse component quantities
       const updateQuantityStmt = db.prepare(`
-        UPDATE components 
-        SET quantity = quantity - ?, 
+        UPDATE components
+        SET quantity = quantity - ?,
             updated_at = datetime('now')
         WHERE id = ?
       `);
 
-      for (const item of items) {
-        updateQuantityStmt.run(item.quantity, item.component_id);
+      if (reverseStock) {
+        for (const item of items) {
+          updateQuantityStmt.run(item.quantity, item.component_id);
+        }
       }
 
       // Delete order (items will be deleted by CASCADE)
@@ -482,7 +508,7 @@ router.post('/bulk-delete', validateSchema(bulkDeleteSchema), (req, res) => {
       // First, get all order items for quantity reversal
       const placeholders = orderIds.map(() => '?').join(',');
       const allItems = db.prepare(`
-        SELECT oi.order_id, oi.component_id, oi.quantity, o.order_number
+        SELECT oi.order_id, oi.component_id, oi.quantity, o.order_number, o.status
         FROM order_items oi
         JOIN orders o ON oi.order_id = o.id
         WHERE oi.order_id IN (${placeholders})
@@ -490,16 +516,18 @@ router.post('/bulk-delete', validateSchema(bulkDeleteSchema), (req, res) => {
 
       // Group items by order for better error handling
       const itemsByOrder = new Map<string, any[]>();
+      const statusByOrder = new Map<string, string>();
       allItems.forEach(item => {
         if (!itemsByOrder.has(item.order_id)) {
           itemsByOrder.set(item.order_id, []);
         }
         itemsByOrder.get(item.order_id)!.push(item);
+        statusByOrder.set(item.order_id, item.status);
       });
 
       const updateQuantityStmt = db.prepare(`
-        UPDATE components 
-        SET quantity = quantity - ?, 
+        UPDATE components
+        SET quantity = quantity - ?,
             updated_at = datetime('now')
         WHERE id = ?
       `);
@@ -511,10 +539,16 @@ router.post('/bulk-delete', validateSchema(bulkDeleteSchema), (req, res) => {
         try {
           const orderItems = itemsByOrder.get(orderId) || [];
           const orderNumber = orderItems[0]?.order_number || orderId;
+          // Same rule as single delete: cancelled / returned orders never
+          // contributed to stock, so don't reverse for them.
+          const orderStatus = statusByOrder.get(orderId);
+          const reverseStock = !orderStatus || !['cancelled', 'returned'].includes(orderStatus);
 
           // Reverse component quantities for this order
-          for (const item of orderItems) {
-            updateQuantityStmt.run(item.quantity, item.component_id);
+          if (reverseStock) {
+            for (const item of orderItems) {
+              updateQuantityStmt.run(item.quantity, item.component_id);
+            }
           }
 
           // Delete the order (items will be deleted by CASCADE)
