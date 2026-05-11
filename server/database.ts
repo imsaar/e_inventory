@@ -808,7 +808,11 @@ function runMigrations() {
   }
 }
 
-// Helper function to add component history entry
+// Helper function to add component history entry. Column names match the
+// CREATE TABLE for component_history above (previous_value, new_value,
+// quantity, timestamp) — earlier versions of this helper referenced
+// old_quantity / new_quantity / created_at, which don't exist on the
+// table, and every component-write path failed with SQLITE_ERROR.
 export function addComponentHistory(
   componentId: string,
   action: string,
@@ -819,11 +823,21 @@ export function addComponentHistory(
   notes?: string
 ) {
   const stmt = db.prepare(`
-    INSERT INTO component_history (id, component_id, action, old_quantity, new_quantity, notes, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO component_history (
+      id, component_id, action, previous_value, new_value, quantity, project_id, notes, timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
-  
-  stmt.run(uuidv4(), componentId, action, quantity, quantity, notes);
+
+  stmt.run(
+    uuidv4(),
+    componentId,
+    action,
+    previousValue ?? null,
+    newValue ?? null,
+    quantity ?? null,
+    projectId ?? null,
+    notes ?? null
+  );
 }
 
 // Database utility functions for testing

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Package, MapPin, Folder, AlertTriangle, TrendingUp, Database, Download, Upload, ShoppingCart, Calendar, DollarSign, Clock } from 'lucide-react';
 import { Component, Order } from '../types';
-import { useDashboardRefreshListener } from '../hooks/useDashboardRefresh';
+import { useDashboardRefresh, useDashboardRefreshListener } from '../hooks/useDashboardRefresh';
 
 interface DashboardStats {
   totalComponents: number;
@@ -39,6 +39,8 @@ export function Dashboard() {
   const [exporting, setExporting] = useState(false);
   const [importingFull, setImportingFull] = useState(false);
   const [exportingFull, setExportingFull] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
+  const { triggerRefresh } = useDashboardRefresh();
 
   const loadDashboardData = useCallback(async () => {
     try {
@@ -294,6 +296,55 @@ export function Dashboard() {
       setImportingFull(false);
       // Reset file input
       event.target.value = '';
+    }
+  };
+
+  const handleRecalculateQuantities = async () => {
+    setRecalculating(true);
+    try {
+      // Preview first so the user sees what will change.
+      const previewRes = await fetch('/api/components/recalculate-quantities?dryRun=true', {
+        method: 'POST',
+      });
+      const preview = await previewRes.json();
+      if (!previewRes.ok) {
+        throw new Error(preview.error || 'Preview failed');
+      }
+      if (!preview.changed) {
+        alert('All component quantities already match their order history. Nothing to recalculate.');
+        return;
+      }
+
+      const sample = preview.components
+        .slice(0, 10)
+        .map((c: { name: string; oldQuantity: number; newQuantity: number }) =>
+          `• ${c.name}: ${c.oldQuantity} → ${c.newQuantity}`
+        )
+        .join('\n');
+      const more = preview.changed > 10 ? `\n…and ${preview.changed - 10} more.` : '';
+
+      const confirmed = window.confirm(
+        `Recalculate ${preview.changed} component ${preview.changed === 1 ? 'quantity' : 'quantities'} from active orders?\n\n` +
+        `${sample}${more}\n\n` +
+        `Cancelled and returned orders will no longer count toward stock.\n\n` +
+        `⚠️ This overwrites any manual quantity edits you've made on these components. This cannot be undone (other than by editing each component back by hand).`
+      );
+      if (!confirmed) return;
+
+      const applyRes = await fetch('/api/components/recalculate-quantities', {
+        method: 'POST',
+      });
+      const result = await applyRes.json();
+      if (!applyRes.ok) {
+        throw new Error(result.error || 'Recalculation failed');
+      }
+      alert(`✅ Recalculated ${result.changed} component ${result.changed === 1 ? 'quantity' : 'quantities'}.`);
+      triggerRefresh();
+    } catch (error) {
+      console.error('Error recalculating quantities:', error);
+      alert(`❌ Recalculation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setRecalculating(false);
     }
   };
 
@@ -682,8 +733,21 @@ Type "FACTORY RESET" below to confirm:`;
               <hr style={{ margin: 'var(--spacing-md) 0', border: 'none', borderTop: '1px solid #e5e7eb' }} />
               
               <div className="sidebar-section-title">⚠️ Danger Zone</div>
-              
-              <button 
+
+              <button
+                className="btn btn-secondary btn-full-width"
+                onClick={handleRecalculateQuantities}
+                disabled={recalculating}
+                title="Recompute components.quantity from active orders. Cancelled and returned orders will no longer count toward stock. Overwrites manual quantity edits."
+              >
+                <Package size={16} />
+                {recalculating ? 'Recalculating...' : 'Recalculate Quantities from Orders'}
+              </button>
+              <div className="sidebar-note">
+                Rebuilds component stock counts from active orders. Cancelled and returned orders won't contribute. Overwrites manual quantity edits.
+              </div>
+
+              <button
                 className="btn btn-danger btn-full-width"
                 onClick={handleFactoryReset}
                 title="Factory reset - permanently delete all data (UNRECOVERABLE without backup)"
